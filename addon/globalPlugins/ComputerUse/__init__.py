@@ -95,6 +95,9 @@ class _Callbacks:
 	def status(self, message):
 		wx.CallAfter(self.plugin.report_status, message)
 
+	def log_only(self, label):
+		wx.CallAfter(self.plugin.log_only, label)
+
 	def confirm_risky(self, description):
 		return self.plugin.confirm_risky(description)
 
@@ -125,6 +128,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def report_status(self, message):
 		ui.message(message)
+
+	def log_only(self, label):
+		if self.session is not None:
+			self.session.record_action(label)
 
 	def action_performed(self, speech_label, log_label):
 		if self.session is not None:

@@ -145,9 +145,6 @@ class ComputerUseSession:
 	def record_action(self, label):
 		self._record_action(label)
 
-	def _status(self, message):
-		self.callbacks.status(message)
-
 	def _find_computer_call(self, response):
 		for item in getattr(response, "output", []) or []:
 			if getattr(item, "type", None) == "computer_call":

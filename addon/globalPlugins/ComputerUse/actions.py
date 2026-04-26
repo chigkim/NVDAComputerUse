@@ -59,7 +59,7 @@ class ActionRunner:
 			if self.callbacks is not None:
 				if action_type in ("wait", "screenshot") and action_type == last_type:
 					# Already announced this type in this sequence, skip speech
-					self.callbacks.status(label) # Record in log without speaking
+					self.callbacks.log_only(label) # Record in log without speaking
 				else:
 					self.callbacks.action_performed(speech_label(action), label)
 			elif self.step_delay:
