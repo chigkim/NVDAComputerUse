@@ -10,20 +10,17 @@ Computer Use lets you describe a task in an NVDA dialog and have OpenAI's Comput
 
 This add-on can interact with the desktop applications that is open in the foreground.
 
-Press `NVDA+Shift+Control+U` to open the task dialog. Enter a task, choose **Perform**, and the add-on captures the active window, sends the screenshot to the configured model, and follows the model's mouse and keyboard actions until the task is complete or the step limit is reached.
-
-The same shortcut is used to abort while a task is running.
-
-## Development
-
-### Setup
-
 1. Open **NVDA Settings**.
 2. Select the **Computer Use** category.
 3. Enter your **OpenAI API key**.
 4. Adjust the model, max steps, and confirmation settings if needed.
+5. Press `NVDA+Shift+Control+U` to open the task dialog. Enter a task, choose **Perform**.
 
-The OpenAI Python package and its dependencies are bundled in the add-on under `addon/globalPlugins/ComputerUse/lib`.
+The add-on captures the active window, sends the screenshot to the configured model, and follows the model's mouse and keyboard actions until the task is complete or the step limit is reached.
+
+The same shortcut is used to abort while a task is running.
+
+## Development
 
 ### Building
 
@@ -36,6 +33,8 @@ To build the add-on using `uv`:
    ```
 
 The resulting `.nvda-addon` file is created in the project root.
+
+The OpenAI Python package and its dependencies are bundled in the add-on under `addon/globalPlugins/ComputerUse/lib`.
 
 ### Standalone Test App
 
