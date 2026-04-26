@@ -1,0 +1,14 @@
+﻿__pycache__/
+*.py[cod]
+.sconsign.dblite
+*.nvda-addon
+addon/doc/*.css
+addon/doc/en/
+*_docHandler.py
+*.html
+manifest.ini
+*.mo
+
+# Test App
+TestApp/.env
+TestApp/last_run.log
