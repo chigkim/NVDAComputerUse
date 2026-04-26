@@ -176,6 +176,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("Set your OpenAI API key in NVDA Settings, Computer Use."))
 			return
 		dialog = TaskDialog(gui.mainFrame)
+		dialog.Raise()
 
 		def callback(result):
 			if result != wx.ID_OK or not dialog.task:
