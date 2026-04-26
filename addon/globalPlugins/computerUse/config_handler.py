@@ -14,7 +14,7 @@ config = None
 
 def load_config():
 	global config
-	path = os.path.abspath(os.path.join(globalVars.appArgs.configPath, "computerUse.conf"))
+	path = os.path.abspath(os.path.join(globalVars.appArgs.configPath, "ComputerUse.conf"))
 	configspec.seek(0)
 	try:
 		config = ConfigObj(

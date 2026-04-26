@@ -28,7 +28,7 @@ class ComputerUseSettingsPanel(SettingsPanel):
 	title = _("Computer Use")
 
 	def makeSettings(self, settingsSizer):
-		settings = config_handler.config["computerUse"]
+		settings = config_handler.config["ComputerUse"]
 		helper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
 		self.api_key = helper.addLabeledControl(_("OpenAI API key:"), wx.TextCtrl, style=wx.TE_PASSWORD)
 		self.api_key.SetValue(settings["api_key"])
@@ -54,7 +54,7 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		self.require_confirmation.SetValue(bool(settings["require_risky_confirmation"]))
 
 	def onSave(self):
-		settings = config_handler.config["computerUse"]
+		settings = config_handler.config["ComputerUse"]
 		settings["api_key"] = self.api_key.GetValue()
 		settings["model"] = self.model.GetValue()
 		settings["max_steps"] = self.max_steps.GetValue()
@@ -143,7 +143,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				if speak_func is None:
 					from speech import speech as speech_module
 					speak_func = speech_module.speak
-				speak_func([message, CallbackCommand(done.set, name="computerUseActionComplete")])
+				speak_func([message, CallbackCommand(done.set, name="ComputerUseActionComplete")])
 			except Exception:
 				log.exception("Unable to use speech callback; falling back to timed action announcement")
 				ui.message(message)
@@ -171,7 +171,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self.session.cancel()
 			ui.message(_("Computer Use cancellation requested."))
 			return
-		settings = config_handler.config["computerUse"]
+		settings = config_handler.config["ComputerUse"]
 		if not settings["api_key"]:
 			ui.message(_("Set your OpenAI API key in NVDA Settings, Computer Use."))
 			return
@@ -186,7 +186,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	script_open_task_dialog.__doc__ = _("Open a prompt to perform a task in the foreground application using OpenAI Computer Use.")
 
 	def start_task(self, task):
-		settings = config_handler.config["computerUse"]
+		settings = config_handler.config["ComputerUse"]
 		self.session = ComputerUseSession(
 			api_key=settings["api_key"],
 			model=settings["model"],

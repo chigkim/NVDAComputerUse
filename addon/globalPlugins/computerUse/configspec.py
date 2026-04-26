@@ -1,7 +1,7 @@
 from io import StringIO
 
 
-configspec = StringIO("""[computerUse]
+configspec = StringIO("""[ComputerUse]
 api_key = string(default="")
 model = string(default="gpt-5.5")
 max_steps = integer(default=20, min=1, max=100)
