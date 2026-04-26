@@ -106,7 +106,7 @@ class ComputerUseSession:
 			],
 		)
 		self._record_turn(response)
-		self.callbacks.action_performed("Screenshot", "Screenshot")
+		self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 		for step in range(self.max_steps):
 			if self.cancelled:
 				return _("Task canceled")
@@ -122,7 +122,6 @@ class ComputerUseSession:
 			if self.cancelled:
 				return _("Task canceled")
 			capture = capture_foreground_window()
-			self.callbacks.action_performed("Screenshot", "Screenshot")
 			response = self.client.responses.create(
 				model=self.model,
 				tools=[{"type": "computer"}],
@@ -140,6 +139,7 @@ class ComputerUseSession:
 				],
 			)
 			self._record_turn(response)
+			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 		return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
 
 	def record_action(self, label):
