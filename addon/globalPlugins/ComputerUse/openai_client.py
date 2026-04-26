@@ -1,6 +1,19 @@
 import os
 import sys
 import importlib
+import builtins
+
+_ = getattr(builtins, "_", None)
+if not callable(_):
+	try:
+		from languageHandler import _ as _lh
+		if callable(_lh):
+			_ = _lh
+	except ImportError:
+		pass
+
+if not callable(_):
+	_ = lambda x: x
 
 from .actions import ActionRunner, describe_action, looks_risky
 from .screenshot import capture_foreground_window

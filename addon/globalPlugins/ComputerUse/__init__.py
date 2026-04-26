@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import builtins
 
 import addonHandler
 import globalPluginHandler
@@ -11,6 +12,18 @@ from gui import guiHelper
 from gui.settingsDialogs import SettingsPanel
 import ui
 import wx
+
+_ = getattr(builtins, "_", None)
+if not callable(_):
+	try:
+		from languageHandler import _ as _lh
+		if callable(_lh):
+			_ = _lh
+	except ImportError:
+		pass
+
+if not callable(_):
+	_ = lambda x: x
 
 from . import config_handler
 from .openai_client import ComputerUseSession

@@ -1,6 +1,27 @@
 import gui
 import wx
-from languageHandler import _
+import addonHandler
+
+import builtins
+
+try:
+	addonHandler.initTranslation()
+except:
+	pass
+
+# Try to get the translation function (_) from builtins, which NVDA sets up.
+# If it's not available or not callable, fall back to a identity function.
+_ = getattr(builtins, "_", None)
+if not callable(_):
+	try:
+		from languageHandler import _ as _lh
+		if callable(_lh):
+			_ = _lh
+	except ImportError:
+		pass
+
+if not callable(_):
+	_ = lambda x: x
 
 def onInstall():
 	# Translators: Warning message shown when installing the add-on.
