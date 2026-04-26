@@ -84,9 +84,7 @@ class ComputerUseSession:
 		self.cancelled = True
 
 	def run(self, task):
-		self._status("Capturing foreground window.")
 		capture = capture_foreground_window()
-		self._status("Sending task to OpenAI.")
 		response = self.client.responses.create(
 			model=self.model,
 			tools=[{"type": "computer"}],
@@ -111,22 +109,18 @@ class ComputerUseSession:
 		self.callbacks.action_performed("Screenshot", "Screenshot")
 		for step in range(self.max_steps):
 			if self.cancelled:
-				return "Computer Use cancelled."
+				return _("Task canceled")
 			computer_call = self._find_computer_call(response)
 			if computer_call is None:
-				return self._final_text(response) or "Computer Use finished."
+				return self._final_text(response) or _("Computer Use finished.")
 			actions = getattr(computer_call, "actions", None) or []
 			if actions:
-				self._status("Step %s: performing %s action%s." % (step + 1, len(actions), "" if len(actions) == 1 else "s"))
 				if self.require_confirmation and looks_risky(actions):
 					if not self.callbacks.confirm_risky(_describe_actions(actions)):
-						return "Stopped before a risky action."
+						return _("Stopped before a risky action.")
 				self.runner.perform(actions, capture)
-			else:
-				self._status("Step %s: model requested a screenshot." % (step + 1))
 			if self.cancelled:
-				return "Computer Use cancelled."
-			self._status("Capturing updated foreground window.")
+				return _("Task canceled")
 			capture = capture_foreground_window()
 			self.callbacks.action_performed("Screenshot", "Screenshot")
 			response = self.client.responses.create(
@@ -146,7 +140,7 @@ class ComputerUseSession:
 				],
 			)
 			self._record_turn(response)
-		return "Stopped after reaching the configured maximum of %s steps." % self.max_steps
+		return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
 
 	def record_action(self, label):
 		self._record_action(label)

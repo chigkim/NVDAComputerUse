@@ -169,7 +169,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if self.worker is not None and self.worker.is_alive():
 			if self.session is not None:
 				self.session.cancel()
-			ui.message(_("Computer Use cancellation requested."))
+			ui.message(_("Task canceled"))
 			return
 		settings = config_handler.config["ComputerUse"]
 		if not settings["api_key"]:
