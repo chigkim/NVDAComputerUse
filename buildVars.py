@@ -24,6 +24,7 @@ addon_info = {
 
 pythonSources = [
 	"addon/globalPlugins/ComputerUse/*.py",
+	"addon/installTasks.py",
 ]
 
 i18nSources = pythonSources + ["buildVars.py"]
