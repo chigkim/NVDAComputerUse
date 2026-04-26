@@ -14,7 +14,9 @@ Press `NVDA+Shift+Control+U` to open the task dialog. Enter a task, choose **Per
 
 The same shortcut is used to abort while a task is running.
 
-## Setup
+## Development
+
+### Setup
 
 1. Open **NVDA Settings**.
 2. Select the **Computer Use** category.
@@ -23,7 +25,7 @@ The same shortcut is used to abort while a task is running.
 
 The OpenAI Python package and its dependencies are bundled in the add-on under `addon/globalPlugins/ComputerUse/lib`.
 
-## Building
+### Building
 
 To build the add-on using `uv`:
 
@@ -34,8 +36,6 @@ To build the add-on using `uv`:
    ```
 
 The resulting `.nvda-addon` file is created in the project root.
-
-## Development
 
 ### Standalone Test App
 
