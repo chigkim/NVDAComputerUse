@@ -92,68 +92,73 @@ class ComputerUseSession:
 		self.total_cached_tokens = 0
 		self.total_output_tokens = 0
 		self.total_tokens = 0
+		self.error = None
 
 	def cancel(self):
 		self.cancelled = True
 
 	def run(self, task):
-		capture = capture_foreground_window()
-		response = self.client.responses.create(
-			model=self.model,
-			tools=[{"type": "computer"}],
-			input=[
-				{
-					"role": "user",
-					"content": [
-						{
-							"type": "input_text",
-							"text": task.strip() + SYSTEM_TASK_SUFFIX,
-						},
-						{
-							"type": "input_image",
-							"image_url": capture.image_url,
-							"detail": "original",
-						},
-					],
-				}
-			],
-		)
-		self._record_turn(response)
-		self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
-		for step in range(self.max_steps):
-			if self.cancelled:
-				return _("Task canceled")
-			computer_call = self._find_computer_call(response)
-			if computer_call is None:
-				return self._final_text(response) or _("Computer Use finished.")
-			actions = getattr(computer_call, "actions", None) or []
-			if actions:
-				if self.require_confirmation and looks_risky(actions):
-					if not self.callbacks.confirm_risky(_describe_actions(actions)):
-						return _("Stopped before a risky action.")
-				self.runner.perform(actions, capture)
-			if self.cancelled:
-				return _("Task canceled")
+		try:
 			capture = capture_foreground_window()
 			response = self.client.responses.create(
 				model=self.model,
 				tools=[{"type": "computer"}],
-				previous_response_id=response.id,
 				input=[
 					{
-						"type": "computer_call_output",
-						"call_id": computer_call.call_id,
-						"output": {
-							"type": "computer_screenshot",
-							"image_url": capture.image_url,
-							"detail": "original",
-						},
+						"role": "user",
+						"content": [
+							{
+								"type": "input_text",
+								"text": task.strip() + SYSTEM_TASK_SUFFIX,
+							},
+							{
+								"type": "input_image",
+								"image_url": capture.image_url,
+								"detail": "original",
+							},
+						],
 					}
 				],
 			)
 			self._record_turn(response)
 			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
-		return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
+			for step in range(self.max_steps):
+				if self.cancelled:
+					return _("Task canceled")
+				computer_call = self._find_computer_call(response)
+				if computer_call is None:
+					return self._final_text(response) or _("Computer Use finished.")
+				actions = getattr(computer_call, "actions", None) or []
+				if actions:
+					if self.require_confirmation and looks_risky(actions):
+						if not self.callbacks.confirm_risky(_describe_actions(actions)):
+							return _("Stopped before a risky action.")
+					self.runner.perform(actions, capture)
+				if self.cancelled:
+					return _("Task canceled")
+				capture = capture_foreground_window()
+				response = self.client.responses.create(
+					model=self.model,
+					tools=[{"type": "computer"}],
+					previous_response_id=response.id,
+					input=[
+						{
+							"type": "computer_call_output",
+							"call_id": computer_call.call_id,
+							"output": {
+								"type": "computer_screenshot",
+								"image_url": capture.image_url,
+								"detail": "original",
+							},
+						}
+					],
+				)
+				self._record_turn(response)
+				self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
+			return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
+		except Exception as exc:
+			self.error = str(exc)
+			raise
 
 	def record_action(self, label):
 		self._record_action(label)
@@ -230,6 +235,9 @@ class ComputerUseSession:
 				output=self.total_output_tokens,
 			)
 		)
+		if self.error:
+			lines.append("")
+			lines.append(_("Error: {error}").format(error=self.error))
 		return "\n".join(lines)
 
 

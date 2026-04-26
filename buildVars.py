@@ -9,7 +9,7 @@ addon_info = {
 	"addon_name": "computerUse",
 	"addon_summary": _("Computer Use"),
 	"addon_description": _("""Control the foreground Windows application from an NVDA prompt using OpenAI Computer Use. The add-on captures the active window, sends it to the configured model, and performs mouse and keyboard actions."""),
-	"addon_version": "2026.1.1",
+	"addon_version": "2026.1.2",
 	"addon_author": "Chi Kim",
 	"addon_url": "https://github.com/chigkim/NVDAComputerUse/",
 	"addon_sourceURL": "https://github.com/chigkim/NVDAComputerUse/",

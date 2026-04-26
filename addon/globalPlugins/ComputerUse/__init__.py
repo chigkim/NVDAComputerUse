@@ -179,7 +179,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if self.worker is not None and self.worker.is_alive():
 			if self.session is not None:
 				self.session.cancel()
-			ui.message(_("Task canceled"))
 			return
 		settings = config_handler.config["ComputerUse"]
 		if not settings["api_key"]:
@@ -198,14 +197,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def start_task(self, task):
 		settings = config_handler.config["ComputerUse"]
-		self.session = ComputerUseSession(
-			api_key=settings["api_key"],
-			model=settings["model"],
-			max_steps=int(settings["max_steps"]),
-			step_delay_ms=int(settings["step_delay_ms"]),
-			require_confirmation=bool(settings["require_risky_confirmation"]),
-			callbacks=_Callbacks(self),
-		)
+		try:
+			self.session = ComputerUseSession(
+				api_key=settings["api_key"],
+				model=settings["model"],
+				max_steps=int(settings["max_steps"]),
+				step_delay_ms=int(settings["step_delay_ms"]),
+				require_confirmation=bool(settings["require_risky_confirmation"]),
+				callbacks=_Callbacks(self),
+			)
+		except Exception as exc:
+			log.exception("Failed to initialize Computer Use session")
+			self.show_run_log(
+				_("Computer Use failed: {error}").format(error=str(exc)),
+				_("Error: {error}").format(error=str(exc))
+			)
+			return
 		self.worker = threading.Thread(target=self._run_task, args=(task,), daemon=True)
 		self.worker.start()
 
