@@ -17,18 +17,20 @@ The OpenAI Python package and its dependencies are bundled in the add-on under `
 
 ## Building
 
-Use Python 3.11.9 for this workspace. Do not upgrade or downgrade Python.
+To build the add-on using `uv`:
 
-To vendor dependencies during development:
-
-```
-uv pip install --python ..\.venv\Scripts\python.exe --target addon\globalPlugins\computerUse\lib openai
-```
-
-To build the add-on:
-
-```
-scons
-```
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
+2. Run the build command:
+   ```bash
+   uv run scons
+   ```
 
 The resulting `.nvda-addon` file is created in this directory.
+
+### Development Setup
+
+To vendor or update dependencies:
+
+```bash
+uv pip install --target addon\globalPlugins\computerUse\lib openai pydantic
+```

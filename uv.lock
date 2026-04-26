@@ -1,0 +1,36 @@
+version = 1
+revision = 3
+requires-python = ">=3.14"
+
+[[package]]
+name = "computeruse"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "markdown" },
+    { name = "scons" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "markdown", specifier = ">=3.10.2" },
+    { name = "scons", specifier = ">=4.10.1" },
+]
+
+[[package]]
+name = "markdown"
+version = "3.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f4/69fa6ed85ae003c2378ffa8f6d2e3234662abd02c10d216c0ba96081a238/markdown-3.10.2.tar.gz", hash = "sha256:994d51325d25ad8aa7ce4ebaec003febcce822c3f8c911e3b17c52f7f589f950", size = 368805, upload-time = "2026-02-09T14:57:26.942Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/1f/77fa3081e4f66ca3576c896ae5d31c3002ac6607f9747d2e3aa49227e464/markdown-3.10.2-py3-none-any.whl", hash = "sha256:e91464b71ae3ee7afd3017d9f358ef0baf158fd9a298db92f1d4761133824c36", size = 108180, upload-time = "2026-02-09T14:57:25.787Z" },
+]
+
+[[package]]
+name = "scons"
+version = "4.10.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/c9/2f430bb39e4eccba32ce8008df4a3206df651276422204e177a09e12b30b/scons-4.10.1.tar.gz", hash = "sha256:99c0e94a42a2c1182fa6859b0be697953db07ba936ecc9817ae0d218ced20b15", size = 3258403, upload-time = "2025-11-16T22:43:39.258Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/bf/931fb9fbb87234c32b8b1b1c15fba23472a10777c12043336675633809a7/scons-4.10.1-py3-none-any.whl", hash = "sha256:bd9d1c52f908d874eba92a8c0c0a8dcf2ed9f3b88ab956d0fce1da479c4e7126", size = 4136069, upload-time = "2025-11-16T22:43:35.933Z" },
+]
