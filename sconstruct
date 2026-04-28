@@ -295,6 +295,10 @@ pythonFiles = expandGlobs(buildVars.pythonSources)
 for file in pythonFiles:
 	env.Depends(addon, file)
 
+addonDataFiles = expandGlobs(getattr(buildVars, "addonDataFiles", []))
+for file in addonDataFiles:
+	env.Depends(addon, file)
+
 # Convert markdown files to html
 # We need at least doc in English and should enable the Help button for the add-on in Add-ons Manager
 createAddonHelp("addon")

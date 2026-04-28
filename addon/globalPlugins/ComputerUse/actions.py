@@ -60,7 +60,7 @@ class ActionRunner:
 				time.sleep(self.step_delay)
 
 	def perform_one(self, action, capture):
-		action_type = _field(action, "type")
+		action_type = _field(action, "action")
 		if action_type == "click":
 			self._click(action, capture, count=1)
 		elif action_type == "double_click":
@@ -155,7 +155,7 @@ def looks_risky(actions):
 		"settings",
 	)
 	for action in actions:
-		text = "%s %s" % (_field(action, "type", ""), _field(action, "text", ""))
+		text = "%s %s" % (_field(action, "action", ""), _field(action, "text", ""))
 		text = text.lower()
 		if any(word in text for word in risky_words):
 			return True
@@ -163,7 +163,7 @@ def looks_risky(actions):
 
 
 def describe_action(action, capture=None):
-	action_type = _field(action, "type", "unknown")
+	action_type = _field(action, "action", "unknown")
 	if action_type == "click":
 		return _point_action("Click", action, capture)
 	if action_type == "double_click":
@@ -205,7 +205,7 @@ def describe_action(action, capture=None):
 
 
 def speech_label(action):
-	action_type = _field(action, "type", "unknown")
+	action_type = _field(action, "action", "unknown")
 	return str(action_type).replace("_", " ").title()
 
 

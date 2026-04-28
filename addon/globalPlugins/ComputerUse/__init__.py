@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 
-import logging
+import logHandler
 import threading
 import builtins
 
@@ -9,7 +9,7 @@ import globalPluginHandler
 import globalVars
 import gui
 from gui import guiHelper
-from gui.settingsDialogs import SettingsPanel
+from gui.settingsDialogs import SettingsPanel, SettingsDialog
 import ui
 import wx
 
@@ -29,7 +29,7 @@ from . import config_handler
 from .openai_client import ComputerUseSession
 
 
-log = logging.getLogger(__name__)
+log = logHandler.log
 
 try:
 	addonHandler.initTranslation()
@@ -43,10 +43,23 @@ class ComputerUseSettingsPanel(SettingsPanel):
 	def makeSettings(self, settingsSizer):
 		settings = config_handler.config["ComputerUse"]
 		helper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
-		self.api_key = helper.addLabeledControl(_("OpenAI API key:"), wx.TextCtrl, style=wx.TE_PASSWORD)
+		self.base_url = helper.addLabeledControl(_("URL:"), wx.TextCtrl)
+		self.base_url.SetValue(settings["base_url"])
+		self.api_key = helper.addLabeledControl(_("API Key:"), wx.TextCtrl, style=wx.TE_PASSWORD)
 		self.api_key.SetValue(settings["api_key"])
-		self.model = helper.addLabeledControl(_("Model:"), wx.TextCtrl)
-		self.model.SetValue(settings["model"])
+		
+		# Model selection with Fetch button
+		model_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		model_label = wx.StaticText(self, label=_("Model:"))
+		model_sizer.Add(model_label, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
+		self.model = wx.TextCtrl(self, value=settings["model"])
+		self.model.SetName(_("Model:"))
+		model_sizer.Add(self.model, proportion=1, flag=wx.EXPAND | wx.RIGHT, border=5)
+		self.fetch_models_btn = wx.Button(self, label=_("Fetch Models"))
+		model_sizer.Add(self.fetch_models_btn)
+		settingsSizer.Add(model_sizer, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
+		self.fetch_models_btn.Bind(wx.EVT_BUTTON, self.on_fetch_models)
+
 		self.max_steps = helper.addLabeledControl(
 			_("Maximum steps:"),
 			gui.nvdaControls.SelectOnFocusSpinCtrl,
@@ -65,14 +78,57 @@ class ComputerUseSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("Ask before risky actions"))
 		)
 		self.require_confirmation.SetValue(bool(settings["require_risky_confirmation"]))
+		self.debug_logging = helper.addItem(
+			wx.CheckBox(self, label=_("Debug"))
+		)
+		self.debug_logging.SetValue(bool(settings.get("debug_logging", False)))
+
+	def on_fetch_models(self, event):
+		api_key = self.api_key.GetValue().strip()
+		base_url = self.base_url.GetValue().strip()
+		
+		try:
+			wx.BeginBusyCursor()
+			models = ComputerUseSession.fetch_available_models(api_key, base_url or None)
+			if wx.IsBusy():
+				wx.EndBusyCursor()
+			
+			if not models:
+				gui.messageBox(_("The server returned an empty list of models."), _("No Models Found"), wx.OK | wx.ICON_INFORMATION, self)
+				return
+				
+			menu = wx.Menu()
+			for model in models:
+				item = menu.Append(wx.ID_ANY, model)
+				self.Bind(wx.EVT_MENU, lambda evt, m=model: self.model.SetValue(m), item)
+			
+			self.PopupMenu(menu)
+			menu.Destroy()
+		except Exception as e:
+			if wx.IsBusy():
+				wx.EndBusyCursor()
+			
+			error_msg = str(e)
+			if "401" in error_msg:
+				msg = _("Authentication failed. Please check your API key.")
+			elif "404" in error_msg:
+				msg = _("Base URL not found. Please check your URL configuration.")
+			elif "connection" in error_msg.lower():
+				msg = _("Network error. Could not connect to the server.")
+			else:
+				msg = _("Failed to fetch models: {error}").format(error=error_msg)
+				
+			gui.messageBox(msg, _("Connection Error"), wx.OK | wx.ICON_ERROR, self)
 
 	def onSave(self):
 		settings = config_handler.config["ComputerUse"]
 		settings["api_key"] = self.api_key.GetValue()
+		settings["base_url"] = self.base_url.GetValue()
 		settings["model"] = self.model.GetValue()
 		settings["max_steps"] = self.max_steps.GetValue()
 		settings["step_delay_ms"] = self.step_delay.GetValue()
 		settings["require_risky_confirmation"] = self.require_confirmation.GetValue()
+		settings["debug_logging"] = self.debug_logging.GetValue()
 		config_handler.config.write()
 
 
@@ -200,10 +256,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		try:
 			self.session = ComputerUseSession(
 				api_key=settings["api_key"],
+				base_url=settings.get("base_url"),
 				model=settings["model"],
 				max_steps=int(settings["max_steps"]),
 				step_delay_ms=int(settings["step_delay_ms"]),
 				require_confirmation=bool(settings["require_risky_confirmation"]),
+				debug_logging=bool(settings.get("debug_logging", False)),
 				callbacks=_Callbacks(self),
 			)
 		except Exception as exc:
