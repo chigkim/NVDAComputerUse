@@ -706,15 +706,19 @@ class ComputerUseRunner:
                         
                     if tc.function.name == "computer":
                         action = json.loads(tc.function.arguments)
-                        self.logger.log("Computer Use Action", describe_action(action))
-                        try:
-                            result_str = perform_action(action, capture)
-                            # if it was a screenshot, capture anew
-                            if action.get("type", action.get("action", "")) == "screenshot":
-                                time.sleep(0.5)
-                        except Exception as e:
-                            result_str = f"Error: {e}"
-                            self.logger.log("Computer Use Error", result_str)
+                        
+                        action_type = action.get("type", action.get("action", ""))
+                        if action_type == "screenshot":
+                            # We log a screenshot automatically at the end of every turn,
+                            # so we can skip the explicit tool call log to avoid redundancy.
+                            result_str = "Success"
+                        else:
+                            self.logger.log("Computer Use Action", describe_action(action))
+                            try:
+                                result_str = perform_action(action, capture)
+                            except Exception as e:
+                                result_str = f"Error: {e}"
+                                self.logger.log("Computer Use Error", result_str)
                             
                         messages.append({
                             "role": "tool",

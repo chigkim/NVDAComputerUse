@@ -244,27 +244,29 @@ class ComputerUseSession:
 					return message.content or _("Computer Use finished.")
 				
 				# Perform actions
-				screenshot_requested = False
 				for tc in tool_calls:
 					if self.cancelled:
 						return _("Task canceled")
 					
 					if tc.function.name == "computer":
 						action = json.loads(tc.function.arguments)
+						
 						if action.get("action") == "screenshot":
-							screenshot_requested = True
-						
-						if self.require_confirmation and looks_risky([action]):
-							if not self.callbacks.confirm_risky(describe_action(action, capture)):
-								self._log_info("Action rejected by user confirmation.")
-								return _("Stopped before a risky action.")
-						
-						try:
-							self.runner.perform([action], capture)
+							# We take a screenshot automatically at the end of every turn,
+							# so we can skip the explicit tool call execution to avoid double announcements.
 							result_str = "Success"
-						except Exception as e:
-							result_str = "Error: %s" % e
-							log.error("Action execution failed: %s" % result_str)
+						else:
+							if self.require_confirmation and looks_risky([action]):
+								if not self.callbacks.confirm_risky(describe_action(action, capture)):
+									self._log_info("Action rejected by user confirmation.")
+									return _("Stopped before a risky action.")
+							
+							try:
+								self.runner.perform([action], capture)
+								result_str = "Success"
+							except Exception as e:
+								result_str = "Error: %s" % e
+								log.error("Action execution failed: %s" % result_str)
 						
 						messages.append({
 							"role": "tool",
@@ -279,17 +281,20 @@ class ComputerUseSession:
 							"content": "Unsupported tool"
 						})
 				
+				# Fresh screenshot after actions
+				time.sleep(0.5)
+				capture = capture_foreground_window()
+				self._log_debug("Updated screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
+				self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
+
 				self._sanitize_messages(messages)
-				if screenshot_requested:
-					capture = capture_foreground_window()
-					self._log_debug("Requested screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
-					messages.append({
-						"role": "user",
-						"content": [
-							{"type": "text", "text": "Latest screenshot. Size: %dx%d pixels." % (capture.display_width, capture.display_height)},
-							{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
-						]
-					})
+				messages.append({
+					"role": "user",
+					"content": [
+						{"type": "text", "text": "Latest screenshot. Size: %dx%d pixels." % (capture.display_width, capture.display_height)},
+						{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
+					]
+				})
 				
 			self._log_info("Reached maximum steps (%d)" % self.max_steps)
 			return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
