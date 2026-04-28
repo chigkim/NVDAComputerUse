@@ -78,6 +78,10 @@ class ComputerUseSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("Ask before risky actions"))
 		)
 		self.require_confirmation.SetValue(bool(settings["require_risky_confirmation"]))
+		self.trim_conversation = helper.addItem(
+			wx.CheckBox(self, label=_("Trim conversation (saves tokens)"))
+		)
+		self.trim_conversation.SetValue(bool(settings.get("trim_conversation", True)))
 		self.debug_logging = helper.addItem(
 			wx.CheckBox(self, label=_("Debug"))
 		)
@@ -128,6 +132,7 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settings["max_steps"] = self.max_steps.GetValue()
 		settings["step_delay_ms"] = self.step_delay.GetValue()
 		settings["require_risky_confirmation"] = self.require_confirmation.GetValue()
+		settings["trim_conversation"] = self.trim_conversation.GetValue()
 		settings["debug_logging"] = self.debug_logging.GetValue()
 		config_handler.config.write()
 
@@ -261,6 +266,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				max_steps=int(settings["max_steps"]),
 				step_delay_ms=int(settings["step_delay_ms"]),
 				require_confirmation=bool(settings["require_risky_confirmation"]),
+				trim_conversation=bool(settings.get("trim_conversation", True)),
 				debug_logging=bool(settings.get("debug_logging", False)),
 				callbacks=_Callbacks(self),
 			)

@@ -72,7 +72,7 @@ def _remove_external_module(module_name, lib_path):
 
 
 class ComputerUseSession:
-	def __init__(self, api_key, model, max_steps, step_delay_ms, require_confirmation, callbacks, base_url=None, debug_logging=False):
+	def __init__(self, api_key, model, max_steps, step_delay_ms, require_confirmation, callbacks, base_url=None, trim_conversation=True, debug_logging=False):
 		ensure_openai_on_path()
 		from openai import OpenAI
 
@@ -83,6 +83,7 @@ class ComputerUseSession:
 		self.model = model
 		self.max_steps = max_steps
 		self.require_confirmation = require_confirmation
+		self.trim_conversation = trim_conversation
 		self.debug_logging = debug_logging
 		self.callbacks = callbacks
 		self.runner = ActionRunner(step_delay_ms=step_delay_ms, callbacks=callbacks)
@@ -243,12 +244,15 @@ class ComputerUseSession:
 					return message.content or _("Computer Use finished.")
 				
 				# Perform actions
+				screenshot_requested = False
 				for tc in tool_calls:
 					if self.cancelled:
 						return _("Task canceled")
 					
 					if tc.function.name == "computer":
 						action = json.loads(tc.function.arguments)
+						if action.get("action") == "screenshot":
+							screenshot_requested = True
 						
 						if self.require_confirmation and looks_risky([action]):
 							if not self.callbacks.confirm_risky(describe_action(action, capture)):
@@ -275,20 +279,17 @@ class ComputerUseSession:
 							"content": "Unsupported tool"
 						})
 				
-				# Fresh screenshot after actions
-				time.sleep(0.5)
-				capture = capture_foreground_window()
-				self._log_debug("Updated screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
-				self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
-				
 				self._sanitize_messages(messages)
-				messages.append({
-					"role": "user",
-					"content": [
-						{"type": "text", "text": "Latest screenshot. Size: %dx%d pixels." % (capture.display_width, capture.display_height)},
-						{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
-					]
-				})
+				if screenshot_requested:
+					capture = capture_foreground_window()
+					self._log_debug("Requested screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
+					messages.append({
+						"role": "user",
+						"content": [
+							{"type": "text", "text": "Latest screenshot. Size: %dx%d pixels." % (capture.display_width, capture.display_height)},
+							{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
+						]
+					})
 				
 			self._log_info("Reached maximum steps (%d)" % self.max_steps)
 			return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
@@ -299,25 +300,27 @@ class ComputerUseSession:
 
 	def _sanitize_messages(self, messages):
 		# 1. Strip images from all existing messages to save tokens.
-		# This handles messages with list content (initial task and loop turn screenshots).
 		for msg in messages:
 			content = msg.get("content")
 			if isinstance(content, list):
 				# Filter out image_url items
 				msg["content"] = [item for item in content if item.get("type") != "image_url"]
-				# If we only have one text item left, convert to plain string for brevity/compatibility
+				# If we only have one text item left, convert to plain string
 				if len(msg["content"]) == 1 and msg["content"][0].get("type") == "text":
 					msg["content"] = msg["content"][0]["text"]
 				elif not msg["content"]:
-					# Should not happen as we always have text, but for safety:
-					msg["content"] = "Previous turn content"
+					msg["content"] = "Previous turn"
+
+		if not self.trim_conversation:
+			self._log_debug("Current message history length: %d" % len(messages))
+			return
 
 		# 2. History length management:
 		# Keep System (0), Task (1), and the last 20 messages to preserve context.
 		if len(messages) > 22:
 			self._log_debug("Truncating history from %d messages" % len(messages))
 			new_messages = [messages[0], messages[1]]
-			# Find a safe cut point in the tail to avoid splitting assistant/tool pairs
+			# Find a safe cut point in the tail to avoid splitting assistant/tool pairs.
 			tail = messages[-20:]
 			while tail and tail[0].get("role") == "tool":
 				tail.pop(0)

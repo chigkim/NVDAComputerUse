@@ -800,11 +800,6 @@ class ComputerUseRunner:
         self.logger.log("Computer Use", "Finished")
         
         def finalize():
-            if wx.TheClipboard.Open():
-                wx.TheClipboard.SetData(wx.TextDataObject(self.logger.full_text()))
-                wx.TheClipboard.Close()
-                self.logger.log("App", "Session report copied to clipboard")
-            
             if self.quit_on_finish:
                 time.sleep(1.0)
                 self.ui_frame.Close()
@@ -1025,7 +1020,7 @@ class UIChallengeFrame(wx.Frame):
         self.UpdateLevel()
         self.logger.log("Level", "Current level reset")
 
-    def UpdateLevel(self):
+    def UpdateLevel(self, rebuild_content=True):
         self.controller.update_results()
         self.lvl_title.SetLabel(f"Level {self.controller.current_level.number}: {self.controller.current_level.title}")
         self.score_text.SetLabel(self.controller.get_score_report())
@@ -1043,9 +1038,10 @@ class UIChallengeFrame(wx.Frame):
         self.prev_btn.Enable(self.controller.current_level > 0)
         self.next_btn.Enable(self.controller.current_level < LevelID.SUMMARY)
         
-        self.content_sizer.Clear(True)
-        self.CreateLevelContent()
-        self.content_area.Layout()
+        if rebuild_content:
+            self.content_sizer.Clear(True)
+            self.CreateLevelContent()
+            self.content_area.Layout()
         self.left_panel.Layout()
 
     def CreateLevelContent(self):
@@ -1272,7 +1268,7 @@ class UIChallengeFrame(wx.Frame):
     def OnMessageChange(self, evt):
         self.controller.message_text = evt.GetString()
         self.controller.message_sent = False
-        self.UpdateLevel()
+        self.UpdateLevel(rebuild_content=False)
 
     def OnSendMessage(self, evt):
         self.controller.message_sent = True
@@ -1381,7 +1377,7 @@ class UIChallengeFrame(wx.Frame):
 
     def OnNotesChange(self, evt):
         self.controller.notes_text = evt.GetString()
-        self.UpdateLevel()
+        self.UpdateLevel(rebuild_content=False)
 
     def OnWordDoubleClick(self, evt):
         self.controller.word_double_clicked = True
@@ -1432,7 +1428,7 @@ class UIChallengeFrame(wx.Frame):
 
     def OnStressText(self, evt):
         self.controller.stress_text = evt.GetString()
-        self.UpdateLevel()
+        self.UpdateLevel(rebuild_content=False)
 
     def OnStressReady(self, evt):
         self.controller.stress_ready = evt.IsChecked()

@@ -47,9 +47,9 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["ctrl", "shift", "option", "command"]
+              "enum": ["CTRL", "SHIFT", "ALT"]
             },
-            "description": "Keyboard modifiers to hold during mouse actions on macOS. Use option for Option and command for Command."
+            "description": "Keyboard modifiers to hold during mouse actions."
           },
           "path": {
             "type": "array",

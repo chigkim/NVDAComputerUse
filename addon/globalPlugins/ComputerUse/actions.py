@@ -84,7 +84,7 @@ class ActionRunner:
 	def _click(self, action, capture, count=1):
 		x, y = capture.to_screen(_field(action, "x"), _field(action, "y"))
 		button = _field(action, "button", "left")
-		keys = _field(action, "keys", [])
+		keys = _field(action, "keys", []) or _field(action, "modifiers", [])
 		with _held_keys(keys):
 			_move_to(x, y)
 			for _ in range(count):
@@ -97,15 +97,17 @@ class ActionRunner:
 		first_x, first_y = _point(path[0])
 		x, y = capture.to_screen(first_x, first_y)
 		_move_to(x, y)
-		_mouse_down("left")
-		try:
-			for point in path[1:]:
-				point_x, point_y = _point(point)
-				x, y = capture.to_screen(point_x, point_y)
-				_move_to(x, y)
-				time.sleep(0.05)
-		finally:
-			_mouse_up("left")
+		keys = _field(action, "modifiers", [])
+		with _held_keys(keys):
+			_mouse_down("left")
+			try:
+				for point in path[1:]:
+					point_x, point_y = _point(point)
+					x, y = capture.to_screen(point_x, point_y)
+					_move_to(x, y)
+					time.sleep(0.05)
+			finally:
+				_mouse_up("left")
 
 	def _scroll(self, action, capture):
 		x = _field(action, "x", None)
@@ -114,10 +116,12 @@ class ActionRunner:
 			_move_to(*capture.to_screen(x, y))
 		scroll_y = int(_field(action, "scrollY", _field(action, "scroll_y", _field(action, "dy", 0))))
 		scroll_x = int(_field(action, "scrollX", _field(action, "scroll_x", _field(action, "dx", 0))))
-		if scroll_y:
-			ctypes.windll.user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -scroll_y, 0)
-		if scroll_x:
-			ctypes.windll.user32.mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, scroll_x, 0)
+		keys = _field(action, "modifiers", [])
+		with _held_keys(keys):
+			if scroll_y:
+				ctypes.windll.user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -scroll_y, 0)
+			if scroll_x:
+				ctypes.windll.user32.mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, scroll_x, 0)
 
 	def _keypress(self, keys):
 		if keys is None:
@@ -129,8 +133,9 @@ class ActionRunner:
 				_press_key(keys[-1])
 
 	def _type_text(self, text):
-		for char in text:
-			_send_unicode(char)
+		if not text:
+			return
+		_send_unicode_text(text)
 
 
 def looks_risky(actions):
@@ -163,45 +168,50 @@ def looks_risky(actions):
 
 
 def describe_action(action, capture=None):
-	action_type = _field(action, "action", "unknown")
-	if action_type == "click":
-		return _point_action("Click", action, capture)
-	if action_type == "double_click":
-		return _point_action("Double click", action, capture)
-	if action_type == "move":
-		return _point_action("Move", action, capture)
+	action_type = str(_field(action, "action", "unknown"))
+	parts = [_action_name(action_type)]
+	target = _field(action, "target", "")
+	if target:
+		parts.append(str(target))
+	if action_type in ("click", "double_click", "triple_click", "move"):
+		_add_point_values(parts, action, capture)
+		button = _field(action, "button", None)
+		if button:
+			parts.append(str(button))
+		_add_list_value(parts, _field(action, "modifiers", []))
+		_add_list_value(parts, _field(action, "keys", []))
 	if action_type == "drag":
 		path = _field(action, "path", []) or []
 		if path:
+			parts.append("%d points" % len(path))
 			x, y = _point(path[-1])
-			if capture is not None:
-				x, y = capture.to_screen(x, y)
-			return "Drag to %s, %s" % (x, y)
-		return "Drag"
-	if action_type == "scroll":
+			if capture is not None and x is not None and y is not None:
+				screen_x, screen_y = capture.to_screen(x, y)
+				parts.append("%s, %s" % (screen_x, screen_y))
+			else:
+				parts.append("%s, %s" % (x, y))
+		_add_list_value(parts, _field(action, "modifiers", []))
+	elif action_type == "scroll":
 		scroll_y = int(_field(action, "scrollY", _field(action, "scroll_y", _field(action, "dy", 0))))
 		scroll_x = int(_field(action, "scrollX", _field(action, "scroll_x", _field(action, "dx", 0))))
-		x = _field(action, "x", None)
-		y = _field(action, "y", None)
-		location = ""
-		if x is not None and y is not None:
-			if capture is not None:
-				x, y = capture.to_screen(x, y)
-			location = " at %s, %s" % (x, y)
-		return "Scroll %s, %s%s" % (scroll_x, scroll_y, location)
-	if action_type == "keypress":
+		parts.append("%s, %s" % (scroll_x, scroll_y))
+		_add_point_values(parts, action, capture)
+		_add_list_value(parts, _field(action, "modifiers", []))
+	elif action_type == "keypress":
 		keys = _field(action, "keys", []) or []
-		if isinstance(keys, str):
-			keys = [keys]
-		return "Key press " + "+".join(str(key) for key in keys)
-	if action_type == "type":
+		_add_list_value(parts, keys)
+	elif action_type == "type":
 		text = _field(action, "text", "")
-		return "Type %s character%s" % (len(text), "" if len(text) == 1 else "s")
-	if action_type == "wait":
-		return "Wait"
-	if action_type == "screenshot":
-		return "Screenshot"
-	return str(action_type).replace("_", " ").title()
+		parts.append("%d character%s" % (len(text), "" if len(text) == 1 else "s"))
+	elif action_type == "wait":
+		duration_ms = _field(action, "duration_ms", None)
+		if duration_ms is not None:
+			parts.append("%s ms" % duration_ms)
+	elif action_type == "screenshot":
+		pass
+	else:
+		_add_generic_values(parts, action, exclude=("action", "target"))
+	return " ".join(parts)
 
 
 def speech_label(action):
@@ -209,12 +219,51 @@ def speech_label(action):
 	return str(action_type).replace("_", " ").title()
 
 
-def _point_action(name, action, capture):
-	x = _field(action, "x", "?")
-	y = _field(action, "y", "?")
-	if capture is not None and x != "?" and y != "?":
-		x, y = capture.to_screen(x, y)
-	return "%s %s, %s" % (name, x, y)
+def _action_name(action_type):
+	names = {
+		"click": "Click",
+		"double_click": "Double click",
+		"triple_click": "Triple click",
+		"move": "Move",
+		"drag": "Drag",
+		"scroll": "Scroll",
+		"keypress": "Key press",
+		"type": "Type",
+		"wait": "Pause",
+		"screenshot": "Screenshot",
+	}
+	return names.get(action_type, action_type.replace("_", " ").title())
+
+
+def _add_point_values(parts, action, capture):
+	x = _field(action, "x", None)
+	y = _field(action, "y", None)
+	if x is None or y is None:
+		return
+	if capture is not None:
+		screen_x, screen_y = capture.to_screen(x, y)
+		parts.append("%s, %s" % (screen_x, screen_y))
+	else:
+		parts.append("%s, %s" % (x, y))
+
+
+def _add_list_value(parts, values):
+	if not values:
+		return
+	if isinstance(values, str):
+		values = [values]
+	parts.append("+".join(str(value) for value in values))
+
+
+def _add_generic_values(parts, action, exclude=()):
+	if not isinstance(action, dict):
+		return
+	for key in sorted(action):
+		if key in exclude:
+			continue
+		value = action[key]
+		if isinstance(value, (str, int, float, bool)):
+			parts.append(str(value))
 
 
 def _move_to(x, y):
@@ -258,11 +307,11 @@ class _held_keys:
 
 	def __enter__(self):
 		for code in self.keys:
-			ctypes.windll.user32.keybd_event(code, 0, 0, 0)
+			_send_input_key(code, is_up=False)
 
 	def __exit__(self, exc_type, exc, tb):
 		for code in reversed(self.keys):
-			ctypes.windll.user32.keybd_event(code, 0, KEYEVENTF_KEYUP, 0)
+			_send_input_key(code, is_up=True)
 
 
 def _press_key(key):
@@ -272,8 +321,17 @@ def _press_key(key):
 			for char in key:
 				_send_unicode(char)
 		return
-	ctypes.windll.user32.keybd_event(code, 0, 0, 0)
-	ctypes.windll.user32.keybd_event(code, 0, KEYEVENTF_KEYUP, 0)
+	_send_input_key(code, is_up=False)
+	_send_input_key(code, is_up=True)
+
+
+def _send_input_key(vk_code, is_up=False):
+	extra = ctypes.c_ulong(0)
+	flags = KEYEVENTF_KEYUP if is_up else 0
+	inp = _INPUT()
+	inp.type = 1 # INPUT_KEYBOARD
+	inp.ki = _KEYBDINPUT(vk_code, 0, flags, 0, None)
+	ctypes.windll.user32.SendInput(1, ctypes.pointer(inp), ctypes.sizeof(inp))
 
 
 def _key_code(key):
@@ -285,21 +343,44 @@ def _key_code(key):
 	return VK.get(key)
 
 
+def _send_unicode_text(text):
+	data = text.encode("utf-16-le", "surrogatepass")
+	code_units = [
+		int.from_bytes(data[index:index + 2], "little")
+		for index in range(0, len(data), 2)
+	]
+	chunk_size = 64
+	for start in range(0, len(code_units), chunk_size):
+		chunk = code_units[start:start + chunk_size]
+		inputs = (_INPUT * (len(chunk) * 2))()
+		for index, code_unit in enumerate(chunk):
+			down = index * 2
+			up = down + 1
+			inputs[down].type = 1 # INPUT_KEYBOARD
+			inputs[down].ki = _KEYBDINPUT(0, code_unit, KEYEVENTF_UNICODE, 0, None)
+			inputs[up].type = 1 # INPUT_KEYBOARD
+			inputs[up].ki = _KEYBDINPUT(0, code_unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None)
+		ctypes.windll.user32.SendInput(len(inputs), ctypes.pointer(inputs), ctypes.sizeof(_INPUT))
+		time.sleep(0.01)
+
+
 def _send_unicode(char):
 	if ord(char) > 0xFFFF:
 		data = char.encode("utf-16-le", "surrogatepass")
 		for index in range(0, len(data), 2):
 			_send_unicode(chr(int.from_bytes(data[index:index + 2], "little")))
 		return
-	extra = ctypes.c_ulong(0)
-	input_down = _INPUT()
-	input_down.type = 1
-	input_down.ki = _KEYBDINPUT(0, ord(char), KEYEVENTF_UNICODE, 0, ctypes.pointer(extra))
-	input_up = _INPUT()
-	input_up.type = 1
-	input_up.ki = _KEYBDINPUT(0, ord(char), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
-	ctypes.windll.user32.SendInput(1, ctypes.pointer(input_down), ctypes.sizeof(input_down))
-	ctypes.windll.user32.SendInput(1, ctypes.pointer(input_up), ctypes.sizeof(input_up))
+	inputs = (_INPUT * 2)()
+
+	# Down
+	inputs[0].type = 1 # INPUT_KEYBOARD
+	inputs[0].ki = _KEYBDINPUT(0, ord(char), KEYEVENTF_UNICODE, 0, None)
+
+	# Up
+	inputs[1].type = 1 # INPUT_KEYBOARD
+	inputs[1].ki = _KEYBDINPUT(0, ord(char), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None)
+
+	ctypes.windll.user32.SendInput(2, ctypes.pointer(inputs), ctypes.sizeof(_INPUT))
 
 
 class _KEYBDINPUT(ctypes.Structure):
@@ -308,7 +389,7 @@ class _KEYBDINPUT(ctypes.Structure):
 		("wScan", ctypes.wintypes.WORD),
 		("dwFlags", ctypes.wintypes.DWORD),
 		("time", ctypes.wintypes.DWORD),
-		("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+		("dwExtraInfo", ctypes.c_void_p),
 	]
 
 
@@ -319,7 +400,7 @@ class _MOUSEINPUT(ctypes.Structure):
 		("mouseData", ctypes.wintypes.DWORD),
 		("dwFlags", ctypes.wintypes.DWORD),
 		("time", ctypes.wintypes.DWORD),
-		("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+		("dwExtraInfo", ctypes.c_void_p),
 	]
 
 
