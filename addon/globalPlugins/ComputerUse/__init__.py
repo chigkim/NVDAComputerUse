@@ -26,7 +26,7 @@ if not callable(_):
 	_ = lambda x: x
 
 from . import config_handler
-from .openai_client import ComputerUseSession
+from .openai_client import APPROVAL_ALL, APPROVAL_CANCEL, APPROVAL_ONCE, ComputerUseSession
 
 
 log = logHandler.log
@@ -60,13 +60,6 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settingsSizer.Add(model_sizer, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
 		self.fetch_models_btn.Bind(wx.EVT_BUTTON, self.on_fetch_models)
 
-		self.max_steps = helper.addLabeledControl(
-			_("Maximum steps:"),
-			gui.nvdaControls.SelectOnFocusSpinCtrl,
-			min=1,
-			max=100,
-			initial=int(settings["max_steps"]),
-		)
 		self.step_delay = helper.addLabeledControl(
 			_("Delay between actions in milliseconds:"),
 			gui.nvdaControls.SelectOnFocusSpinCtrl,
@@ -129,7 +122,6 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settings["api_key"] = self.api_key.GetValue()
 		settings["base_url"] = self.base_url.GetValue()
 		settings["model"] = self.model.GetValue()
-		settings["max_steps"] = self.max_steps.GetValue()
 		settings["step_delay_ms"] = self.step_delay.GetValue()
 		settings["require_risky_confirmation"] = self.require_confirmation.GetValue()
 		settings["trim_conversation"] = self.trim_conversation.GetValue()
@@ -160,6 +152,36 @@ class TaskDialog(wx.Dialog):
 			return
 		self.task = task
 		self.EndModal(wx.ID_OK)
+
+
+class ComputerUseApprovalDialog(wx.Dialog):
+	def __init__(self, parent, action):
+		super().__init__(parent, title=_("Approve Computer Use Action?"))
+		main = wx.BoxSizer(wx.VERTICAL)
+		label = wx.StaticText(self, label=_("Computer Use is about to perform a potentially risky action:"))
+		main.Add(label, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=guiHelper.BORDER_FOR_DIALOGS)
+
+		action_text = wx.StaticText(self, label=action)
+		action_text.Wrap(520)
+		main.Add(action_text, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
+
+		buttons = wx.BoxSizer(wx.HORIZONTAL)
+		cancel = wx.Button(self, wx.ID_CANCEL, _("Cancel"))
+		approve_once = wx.Button(self, label=_("Approve Once"))
+		approve_all = wx.Button(self, label=_("Approve All"))
+		buttons.AddStretchSpacer()
+		buttons.Add(cancel, flag=wx.RIGHT, border=5)
+		buttons.Add(approve_once, flag=wx.RIGHT, border=5)
+		buttons.Add(approve_all)
+		main.Add(buttons, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
+
+		self.SetSizerAndFit(main)
+		self.SetMinSize((560, self.GetSize().height))
+		cancel.Bind(wx.EVT_BUTTON, lambda event: self.EndModal(wx.ID_CANCEL))
+		approve_once.Bind(wx.EVT_BUTTON, lambda event: self.EndModal(wx.ID_OK))
+		approve_all.Bind(wx.EVT_BUTTON, lambda event: self.EndModal(wx.ID_YES))
+		approve_once.SetDefault()
+		approve_once.SetFocus()
 
 
 class _Callbacks:
@@ -224,12 +246,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		done.wait(timeout + 1.0)
 
 	def confirm_risky(self, description):
-		result = {"value": False}
+		result = {"value": APPROVAL_CANCEL}
 		done = threading.Event()
 
 		def ask():
-			msg = _("Computer Use is about to perform a potentially risky action:\n\n{action}\n\nDo you want to continue?").format(action=description)
-			result["value"] = gui.messageBox(msg, _("Computer Use"), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING) == wx.YES
+			dialog = ComputerUseApprovalDialog(gui.mainFrame, description)
+			try:
+				response = dialog.ShowModal()
+			finally:
+				dialog.Destroy()
+
+			if response == wx.ID_OK:
+				result["value"] = APPROVAL_ONCE
+			elif response == wx.ID_YES:
+				result["value"] = APPROVAL_ALL
+			else:
+				result["value"] = APPROVAL_CANCEL
 			done.set()
 
 		wx.CallAfter(ask)
@@ -263,7 +295,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				api_key=settings["api_key"],
 				base_url=settings.get("base_url"),
 				model=settings["model"],
-				max_steps=int(settings["max_steps"]),
 				step_delay_ms=int(settings["step_delay_ms"]),
 				require_confirmation=bool(settings["require_risky_confirmation"]),
 				trim_conversation=bool(settings.get("trim_conversation", True)),

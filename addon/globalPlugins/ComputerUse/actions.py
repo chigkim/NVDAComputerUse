@@ -160,7 +160,11 @@ def looks_risky(actions):
 		"settings",
 	)
 	for action in actions:
-		text = "%s %s" % (_field(action, "action", ""), _field(action, "text", ""))
+		text = "%s %s %s" % (
+			describe_action(action),
+			_field(action, "target", ""),
+			_field(action, "text", ""),
+		)
 		text = text.lower()
 		if any(word in text for word in risky_words):
 			return True

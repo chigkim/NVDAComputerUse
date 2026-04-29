@@ -14,6 +14,7 @@ import wx.lib.newevent
 import datetime
 import uuid
 import os
+import sys
 import json
 import base64
 import ctypes
@@ -29,6 +30,12 @@ from openai import OpenAI
 import dotenv
 
 dotenv.load_dotenv()
+
+COMPUTER_USE_DIR = os.path.join(os.path.dirname(__file__), "addon", "globalPlugins", "ComputerUse")
+if COMPUTER_USE_DIR not in sys.path:
+    sys.path.insert(0, COMPUTER_USE_DIR)
+
+from conversation_history import sanitize_messages, screenshot_text_for_messages
 
 # ---------------------------------------------------------------------------
 # Win32 Constants & Ctypes
@@ -542,7 +549,6 @@ class ComputerUseRunner:
         self.is_running = False
         self.cancelled = False
         self.thread = None
-        self.max_turns = 30
         self.quit_on_finish = False
         
         self.total_input_tokens = 0
@@ -653,7 +659,8 @@ class ComputerUseRunner:
                 }
             ]
             
-            for turn in range(1, self.max_turns + 1):
+            turn = 1
+            while True:
                 if self.cancelled:
                     self._finish("Cancelled")
                     return
@@ -741,54 +748,22 @@ class ComputerUseRunner:
                 capture = capture_window(self.hwnd)
                 self.logger.log("Computer Use Action", "Screenshot")
                 
-                # To prevent context from growing infinitely with images, we can strip old images
-                self._sanitize_messages(messages)
-                
                 messages.append({
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Latest screenshot."},
+                        {"type": "text", "text": screenshot_text_for_messages(messages)},
                         {"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
                     ]
                 })
-
-            self._finish(f"Stopped after {self.max_turns} turns.")
+                self._sanitize_messages(messages)
+                turn += 1
             
         except Exception as exc:
             self.logger.log("Computer Use Error", str(exc))
             self._finish("Error")
 
     def _sanitize_messages(self, messages):
-        # 1. Strip ALL existing images from the history to minimize token usage
-        for msg in messages:
-            if isinstance(msg.get("content"), list):
-                msg["content"] = [item for item in msg["content"] if item.get("type") != "image_url"]
-
-        # 2. Identify the latest turn's assistant message with tool calls
-        latest_assistant_idx = -1
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "assistant" and messages[i].get("tool_calls"):
-                latest_assistant_idx = i
-                break
-
-        if latest_assistant_idx != -1:
-            indices_to_remove = []
-            # We preserve system (0) and initial prompt (1).
-            # For everything in between, we keep only the assistant's text reasoning (summary).
-            for i in range(2, latest_assistant_idx):
-                msg = messages[i]
-                role = msg.get("role")
-                if role == "assistant":
-                    # Remove tool calls but KEEP text content (the reasoning summary)
-                    msg.pop("tool_calls", None)
-                    if not msg.get("content"):
-                        indices_to_remove.append(i)
-                elif role in ["tool", "user"]:
-                    # Remove machine data and old screenshot placeholders
-                    indices_to_remove.append(i)
-            
-            for idx in sorted(indices_to_remove, reverse=True):
-                messages.pop(idx)
+        sanitize_messages(messages)
 
     def _finish(self, status: str):
         self.is_running = False

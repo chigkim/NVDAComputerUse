@@ -7,6 +7,9 @@ import time
 import logHandler
 
 log = logHandler.log
+APPROVAL_CANCEL = "cancel"
+APPROVAL_ONCE = "approve_once"
+APPROVAL_ALL = "approve_all"
 
 _ = getattr(builtins, "_", None)
 if not callable(_):
@@ -21,6 +24,7 @@ if not callable(_):
 	_ = lambda x: x
 
 from .actions import ActionRunner, describe_action, looks_risky
+from .conversation_history import sanitize_messages, screenshot_text_for_messages
 from .screenshot import capture_foreground_window
 
 
@@ -72,7 +76,7 @@ def _remove_external_module(module_name, lib_path):
 
 
 class ComputerUseSession:
-	def __init__(self, api_key, model, max_steps, step_delay_ms, require_confirmation, callbacks, base_url=None, trim_conversation=True, debug_logging=False):
+	def __init__(self, api_key, model, step_delay_ms, require_confirmation, callbacks, base_url=None, trim_conversation=True, debug_logging=False):
 		ensure_openai_on_path()
 		from openai import OpenAI
 
@@ -81,13 +85,13 @@ class ComputerUseSession:
 			client_args["base_url"] = base_url
 		self.client = OpenAI(**client_args)
 		self.model = model
-		self.max_steps = max_steps
 		self.require_confirmation = require_confirmation
 		self.trim_conversation = trim_conversation
 		self.debug_logging = debug_logging
 		self.callbacks = callbacks
 		self.runner = ActionRunner(step_delay_ms=step_delay_ms, callbacks=callbacks)
 		self.cancelled = False
+		self.approve_all_actions_for_current_task = False
 		self.turns = []
 		self.total_input_tokens = 0
 		self.total_cached_tokens = 0
@@ -172,6 +176,7 @@ class ComputerUseSession:
 
 	def run(self, task):
 		self._log_info("Starting Computer Use task: %s" % task)
+		self.approve_all_actions_for_current_task = False
 		try:
 			tools, system_msg = self._load_tools_and_system()
 			capture = capture_foreground_window()
@@ -190,12 +195,13 @@ class ComputerUseSession:
 			
 			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 			
-			for step in range(self.max_steps):
+			step = 1
+			while True:
 				if self.cancelled:
 					self._log_info("Task cancelled by user.")
 					return _("Task canceled")
 				
-				self._log_info("Sending request to model: %s (Step %d)" % (self.model, step + 1))
+				self._log_info("Sending request to model: %s (Step %d)" % (self.model, step))
 				# Log a summary of messages for debugging without bloating the log with images
 				if self.debug_logging:
 					for i, msg in enumerate(messages):
@@ -256,8 +262,15 @@ class ComputerUseSession:
 							# so we can skip the explicit tool call execution to avoid double announcements.
 							result_str = "Success"
 						else:
-							if self.require_confirmation and looks_risky([action]):
-								if not self.callbacks.confirm_risky(describe_action(action, capture)):
+							if (
+								self.require_confirmation
+								and not self.approve_all_actions_for_current_task
+								and looks_risky([action])
+							):
+								decision = self.callbacks.confirm_risky(describe_action(action, capture))
+								if decision == APPROVAL_ALL:
+									self.approve_all_actions_for_current_task = True
+								elif decision != APPROVAL_ONCE:
 									self._log_info("Action rejected by user confirmation.")
 									return _("Stopped before a risky action.")
 							
@@ -287,51 +300,28 @@ class ComputerUseSession:
 				self._log_debug("Updated screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
 				self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 
-				self._sanitize_messages(messages)
+				screenshot_text = "%s Size: %dx%d pixels." % (
+					screenshot_text_for_messages(messages),
+					capture.display_width,
+					capture.display_height,
+				)
 				messages.append({
 					"role": "user",
 					"content": [
-						{"type": "text", "text": "Latest screenshot. Size: %dx%d pixels." % (capture.display_width, capture.display_height)},
+						{"type": "text", "text": screenshot_text},
 						{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
 					]
 				})
+				self._sanitize_messages(messages)
+				step += 1
 				
-			self._log_info("Reached maximum steps (%d)" % self.max_steps)
-			return _("Stopped after reaching the configured maximum of {max_steps} steps.").format(max_steps=self.max_steps)
 		except Exception as exc:
 			log.error("Computer Use session encountered an error", exc_info=True)
 			self.error = str(exc)
 			raise
 
 	def _sanitize_messages(self, messages):
-		# 1. Strip images from all existing messages to save tokens.
-		for msg in messages:
-			content = msg.get("content")
-			if isinstance(content, list):
-				# Filter out image_url items
-				msg["content"] = [item for item in content if item.get("type") != "image_url"]
-				# If we only have one text item left, convert to plain string
-				if len(msg["content"]) == 1 and msg["content"][0].get("type") == "text":
-					msg["content"] = msg["content"][0]["text"]
-				elif not msg["content"]:
-					msg["content"] = "Previous turn"
-
-		if not self.trim_conversation:
-			self._log_debug("Current message history length: %d" % len(messages))
-			return
-
-		# 2. History length management:
-		# Keep System (0), Task (1), and the last 20 messages to preserve context.
-		if len(messages) > 22:
-			self._log_debug("Truncating history from %d messages" % len(messages))
-			new_messages = [messages[0], messages[1]]
-			# Find a safe cut point in the tail to avoid splitting assistant/tool pairs.
-			tail = messages[-20:]
-			while tail and tail[0].get("role") == "tool":
-				tail.pop(0)
-			new_messages.extend(tail)
-			messages[:] = new_messages
-		
+		sanitize_messages(messages, trim_conversation=self.trim_conversation)
 		self._log_debug("Current message history length: %d" % len(messages))
 
 	def record_action(self, label):
