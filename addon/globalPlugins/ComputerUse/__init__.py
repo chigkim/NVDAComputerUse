@@ -207,6 +207,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(ComputerUseSettingsPanel)
 		self.session = None
 		self.worker = None
+		self.cancel_worker = None
+		self._runtime_warning_agreed = False
 
 	def terminate(self):
 		try:
@@ -280,10 +282,49 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		done.wait()
 		return result["value"]
 
+	def make_runtime_warning_dialog(self):
+		msg = _(
+			"This add-on uses an AI model to control your computer's mouse and keyboard. "
+			"The author is not responsible for any irreversible actions, data loss, or "
+			"other damages this add-on may perform or cause. Please use this tool "
+			"responsibly and always monitor the add-on while it is running."
+		)
+		title = _("USE AT YOUR OWN RISK")
+		dialog = wx.MessageDialog(gui.mainFrame, msg, title, wx.YES_NO | wx.ICON_WARNING)
+		dialog.SetYesNoLabels(_("Agree"), _("Disagree"))
+		return dialog
+
 	def script_open_task_dialog(self, gesture):
 		if self.worker is not None and self.worker.is_alive():
-			if self.session is not None:
-				self.session.cancel()
+			if self.cancel_worker is None or not self.cancel_worker.is_alive():
+				self.cancel_worker = threading.Thread(target=self._cancel_running_task, daemon=True)
+				self.cancel_worker.start()
+			return
+		settings = config_handler.config["ComputerUse"]
+		if not settings["api_key"]:
+			ui.message(_("Set your OpenAI API key in NVDA Settings, Computer Use."))
+			return
+		if self._runtime_warning_agreed:
+			self.open_task_dialog()
+			return
+
+		dialog = self.make_runtime_warning_dialog()
+
+		def callback(result):
+			if result != wx.ID_YES:
+				return
+			self._runtime_warning_agreed = True
+			wx.CallAfter(self.open_task_dialog)
+
+		gui.runScriptModalDialog(dialog, callback)
+
+	def _cancel_running_task(self):
+		self.speak_and_wait(_("Canceling computer use."))
+		if self.session is not None:
+			self.session.cancel()
+
+	def open_task_dialog(self):
+		if self.worker is not None and self.worker.is_alive():
 			return
 		settings = config_handler.config["ComputerUse"]
 		if not settings["api_key"]:
