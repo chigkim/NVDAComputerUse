@@ -46,18 +46,15 @@ for i in range(1, 25):
 
 
 class ActionRunner:
-	def __init__(self, step_delay_ms=500, callbacks=None):
-		self.step_delay = step_delay_ms / 1000.0
+	def __init__(self, callbacks=None):
 		self.callbacks = callbacks
 
 	def perform(self, actions, capture):
 		for action in actions:
 			label = describe_action(action, capture)
-			self.perform_one(action, capture)
 			if self.callbacks is not None:
 				self.callbacks.action_performed(speech_label(action), label)
-			elif self.step_delay:
-				time.sleep(self.step_delay)
+			self.perform_one(action, capture)
 
 	def perform_one(self, action, capture):
 		action_type = _field(action, "action")
@@ -65,6 +62,8 @@ class ActionRunner:
 			self._click(action, capture, count=1)
 		elif action_type == "double_click":
 			self._click(action, capture, count=2)
+		elif action_type == "triple_click":
+			self._click(action, capture, count=3)
 		elif action_type == "move":
 			x, y = capture.to_screen(_field(action, "x"), _field(action, "y"))
 			_move_to(x, y)
@@ -77,7 +76,9 @@ class ActionRunner:
 		elif action_type == "type":
 			self._type_text(_field(action, "text", ""))
 		elif action_type == "wait" or action_type == "screenshot":
-			time.sleep(max(self.step_delay, 0.25))
+			# For explicit wait/screenshot actions, we still want a small pause
+			duration_ms = _field(action, "duration_ms", 250)
+			time.sleep(max(duration_ms / 1000.0, 0.25))
 		else:
 			raise RuntimeError("Unsupported computer action: %s" % action_type)
 

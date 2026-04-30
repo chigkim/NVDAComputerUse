@@ -46,7 +46,7 @@ def _trim_tool_history(messages):
 
 		if has_tool_calls and index != latest_tool_call_index:
 			content = message.get("content")
-			if isinstance(content, str) and content:
+			if content:
 				trimmed.append({"role": "assistant", "content": content})
 			continue
 

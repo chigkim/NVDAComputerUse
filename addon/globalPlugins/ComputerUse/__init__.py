@@ -60,13 +60,6 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settingsSizer.Add(model_sizer, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
 		self.fetch_models_btn.Bind(wx.EVT_BUTTON, self.on_fetch_models)
 
-		self.step_delay = helper.addLabeledControl(
-			_("Delay between actions in milliseconds:"),
-			gui.nvdaControls.SelectOnFocusSpinCtrl,
-			min=0,
-			max=10000,
-			initial=int(settings["step_delay_ms"]),
-		)
 		self.require_confirmation = helper.addItem(
 			wx.CheckBox(self, label=_("Ask before risky actions"))
 		)
@@ -122,7 +115,6 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settings["api_key"] = self.api_key.GetValue()
 		settings["base_url"] = self.base_url.GetValue()
 		settings["model"] = self.model.GetValue()
-		settings["step_delay_ms"] = self.step_delay.GetValue()
 		settings["require_risky_confirmation"] = self.require_confirmation.GetValue()
 		settings["trim_conversation"] = self.trim_conversation.GetValue()
 		settings["debug_logging"] = self.debug_logging.GetValue()
@@ -220,6 +212,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ui.message(message)
 
 	def action_performed(self, speech_label, log_label):
+		log.info("Action performed callback: %s (%s)" % (speech_label, log_label))
 		if self.session is not None:
 			self.session.record_action(log_label)
 		self.speak_and_wait(speech_label)
@@ -227,6 +220,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def speak_and_wait(self, message):
 		done = threading.Event()
 		timeout = max(1.5, min(10.0, 0.35 + len(message) / 9.0))
+		log.info("Speech start: %s" % message)
+
+		def on_done():
+			log.info("Speech end (callback): %s" % message)
+			done.set()
 
 		def speak():
 			try:
@@ -236,14 +234,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				if speak_func is None:
 					from speech import speech as speech_module
 					speak_func = speech_module.speak
-				speak_func([message, CallbackCommand(done.set, name="ComputerUseActionComplete")])
+				speak_func([message, CallbackCommand(on_done, name="ComputerUseActionComplete")])
 			except Exception:
 				log.exception("Unable to use speech callback; falling back to timed action announcement")
 				ui.message(message)
-				wx.CallLater(int(timeout * 1000), done.set)
+				wx.CallLater(int(timeout * 1000), on_done)
 
 		wx.CallAfter(speak)
 		done.wait(timeout + 1.0)
+		if not done.is_set():
+			log.info("Speech end (timeout): %s" % message)
+
 
 	def confirm_risky(self, description):
 		result = {"value": APPROVAL_CANCEL}
@@ -295,7 +296,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				api_key=settings["api_key"],
 				base_url=settings.get("base_url"),
 				model=settings["model"],
-				step_delay_ms=int(settings["step_delay_ms"]),
 				require_confirmation=bool(settings["require_risky_confirmation"]),
 				trim_conversation=bool(settings.get("trim_conversation", True)),
 				debug_logging=bool(settings.get("debug_logging", False)),

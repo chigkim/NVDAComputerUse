@@ -76,7 +76,7 @@ def _remove_external_module(module_name, lib_path):
 
 
 class ComputerUseSession:
-	def __init__(self, api_key, model, step_delay_ms, require_confirmation, callbacks, base_url=None, trim_conversation=True, debug_logging=False):
+	def __init__(self, api_key, model, require_confirmation, callbacks, base_url=None, trim_conversation=True, debug_logging=False):
 		ensure_openai_on_path()
 		from openai import OpenAI
 
@@ -89,7 +89,7 @@ class ComputerUseSession:
 		self.trim_conversation = trim_conversation
 		self.debug_logging = debug_logging
 		self.callbacks = callbacks
-		self.runner = ActionRunner(step_delay_ms=step_delay_ms, callbacks=callbacks)
+		self.runner = ActionRunner(callbacks=callbacks)
 		self.cancelled = False
 		self.approve_all_actions_for_current_task = False
 		self.turns = []
@@ -98,6 +98,7 @@ class ComputerUseSession:
 		self.total_output_tokens = 0
 		self.total_tokens = 0
 		self.error = None
+		self.messages = []
 
 	def _log_debug(self, msg, *args):
 		if self.debug_logging:
@@ -179,10 +180,11 @@ class ComputerUseSession:
 		self.approve_all_actions_for_current_task = False
 		try:
 			tools, system_msg = self._load_tools_and_system()
+			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 			capture = capture_foreground_window()
 			self._log_debug("Initial screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
 			
-			messages = [
+			self.messages = [
 				{"role": "system", "content": system_msg},
 				{
 					"role": "user",
@@ -193,8 +195,6 @@ class ComputerUseSession:
 				}
 			]
 			
-			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
-			
 			step = 1
 			while True:
 				if self.cancelled:
@@ -204,7 +204,7 @@ class ComputerUseSession:
 				self._log_info("Sending request to model: %s (Step %d)" % (self.model, step))
 				# Log a summary of messages for debugging without bloating the log with images
 				if self.debug_logging:
-					for i, msg in enumerate(messages):
+					for i, msg in enumerate(self.messages):
 						content = msg.get("content")
 						if isinstance(content, list):
 							content_summary = [
@@ -217,7 +217,7 @@ class ComputerUseSession:
 
 				response = self.client.chat.completions.create(
 					model=self.model,
-					messages=messages,
+					messages=self.messages,
 					tools=tools,
 					tool_choice="auto"
 				)
@@ -229,6 +229,7 @@ class ComputerUseSession:
 				
 				if message.content:
 					self._log_info("Assistant: %s" % message.content)
+					self.callbacks.action_performed(message.content, message.content)
 				
 				# Add assistant message to history
 				msg_dict = {"role": "assistant"}
@@ -243,7 +244,7 @@ class ComputerUseSession:
 							"type": "function",
 							"function": {"name": tc.function.name, "arguments": tc.function.arguments}
 						})
-				messages.append(msg_dict)
+				self.messages.append(msg_dict)
 				
 				if not tool_calls:
 					self._log_info("No more tool calls. Task finished.")
@@ -281,38 +282,37 @@ class ComputerUseSession:
 								result_str = "Error: %s" % e
 								log.error("Action execution failed: %s" % result_str)
 						
-						messages.append({
+						self.messages.append({
 							"role": "tool",
 							"tool_call_id": tc.id,
 							"content": result_str
 						})
 					else:
 						log.warning("Unsupported tool call: %s" % tc.function.name)
-						messages.append({
+						self.messages.append({
 							"role": "tool",
 							"tool_call_id": tc.id,
 							"content": "Unsupported tool"
 						})
 				
 				# Fresh screenshot after actions
-				time.sleep(0.5)
+				self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 				capture = capture_foreground_window()
 				self._log_debug("Updated screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
-				self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 
 				screenshot_text = "%s Size: %dx%d pixels." % (
-					screenshot_text_for_messages(messages),
+					screenshot_text_for_messages(self.messages),
 					capture.display_width,
 					capture.display_height,
 				)
-				messages.append({
+				self.messages.append({
 					"role": "user",
 					"content": [
 						{"type": "text", "text": screenshot_text},
 						{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
 					]
 				})
-				self._sanitize_messages(messages)
+				self._sanitize_messages(self.messages)
 				step += 1
 				
 		except Exception as exc:
@@ -387,4 +387,27 @@ class ComputerUseSession:
 		if self.error:
 			lines.append("")
 			lines.append(_("Error: {error}").format(error=self.error))
+
+		if self.debug_logging and self.messages:
+			# Log full conversation history to NVDA log instead of returning it in the report
+			sanitized = []
+			for msg in self.messages:
+				m = msg.copy()
+				content = m.get("content")
+				if isinstance(content, list):
+					new_content = []
+					for item in content:
+						if item.get("type") == "image_url":
+							new_content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64,[IMAGE]"}})
+						else:
+							new_content.append(item)
+					m["content"] = new_content
+				sanitized.append(m)
+			
+			try:
+				history_json = json.dumps(sanitized, indent=2, ensure_ascii=False)
+				log.info("Computer Use: Full Conversation History (Debug):\n%s" % history_json)
+			except Exception as e:
+				log.error("Error serializing conversation history for debug log: %s" % e)
+
 		return "\n".join(lines)

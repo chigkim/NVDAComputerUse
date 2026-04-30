@@ -5,6 +5,7 @@ All mouse coordinates must be given as pixels relative to the top-left corner of
 Use the computer tool to interact with the OS through mouse, keyboard, scrolling, waiting, and screenshots.
 
 General rules:
+- Along with any tool calls, you MUST provide a brief text response explaining your immediate plan or reasoning.
 - Every computer tool call must include `target`: a concise, distinct short label describing the visible UI target or immediate purpose of the action for logging.
 - Keep `target` brief, such as `Pause button`, `Name field`, `page to load`, or `refresh screen`. Do not include hidden reasoning or long explanations.
 - Observe the latest screenshot and verify the actions are performed before deciding next action.

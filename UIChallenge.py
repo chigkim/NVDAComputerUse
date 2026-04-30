@@ -378,7 +378,7 @@ class LevelID(IntEnum):
             "Select table cell 13 and list row Gamma, then click Next.",
             "Set the slider between 70 and 80 and the stepper between 3 and 5, then click Next.",
             "Right-click the Context Target and choose Archive, then click Next.",
-            "Click Start Shortcut Capture, press Command+Shift+M in the shortcut test area, then click Next.",
+            "Click Start Shortcut Capture, press Control+Shift+M in the shortcut test area, then click Next.",
             "In the notes editor, make the text exactly: Alpha beta gamma. Then double-click the Word Target and triple-click the Paragraph Target before clicking Next.",
             "Scroll the list, click Hidden Target 18, then click Next.",
             "Drag the Drag Source onto the Drop Target, then click Next.",
@@ -497,7 +497,7 @@ class LevelController:
             if "Slider" in requirement: return 70 <= self.slider_value <= 80
             return 3 <= self.stepper_value <= 5
         if level == LevelID.CONTEXT_MENU: return self.context_choice == "Archive"
-        if level == LevelID.KEYBOARD_SHORTCUT: return self.shortcut_pressed == "Pressed Command+Shift+M"
+        if level == LevelID.KEYBOARD_SHORTCUT: return self.shortcut_pressed == "Pressed Control+Shift+M"
         if level == LevelID.TEXT_EDITING:
             if "Text" in requirement: return self.notes_text == "Alpha beta gamma."
             if "Word" in requirement: return self.word_double_clicked
