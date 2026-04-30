@@ -49,11 +49,13 @@ class ActionRunner:
 	def __init__(self, callbacks=None):
 		self.callbacks = callbacks
 
-	def perform(self, actions, capture):
+	def perform(self, actions, capture, before_execute=None):
 		for action in actions:
 			label = describe_action(action, capture)
 			if self.callbacks is not None:
 				self.callbacks.action_performed(speech_label(action), label)
+			if before_execute is not None:
+				before_execute(action)
 			self.perform_one(action, capture)
 
 	def perform_one(self, action, capture):
@@ -221,7 +223,11 @@ def describe_action(action, capture=None):
 
 def speech_label(action):
 	action_type = _field(action, "action", "unknown")
-	return str(action_type).replace("_", " ").title()
+	target = _field(action, "target", "")
+	name = _action_name(action_type)
+	if target:
+		return "%s %s" % (name, target)
+	return name
 
 
 def _action_name(action_type):

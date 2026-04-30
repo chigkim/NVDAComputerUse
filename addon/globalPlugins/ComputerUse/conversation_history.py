@@ -21,9 +21,7 @@ def screenshot_text_for_messages(messages):
 	if not results:
 		return "Latest screenshot."
 
-	return "Previous tool result:\n%s\n\nLatest screenshot." % "\n".join(
-		"- %s" % result for result in results
-	)
+	return "Toolcall Result:\n%s\n\nLatest screenshot." % "\n".join(results)
 
 
 def sanitize_messages(messages, trim_conversation=True):
@@ -90,6 +88,8 @@ def _keep_latest_image(messages, compact_screenshot_messages):
 			compacted_content = _compacted_screenshot_content(restored_content)
 			if removed_image and compact_screenshot_messages and compacted_content is not None:
 				messages[index]["content"] = compacted_content
+			elif removed_image and compact_screenshot_messages and _is_single_text_message(restored_content):
+				messages[index]["content"] = restored_content[0]["text"]
 			else:
 				messages[index]["content"] = restored_content
 
@@ -128,9 +128,17 @@ def _compacted_screenshot_content(content):
 		return None
 
 	prefix = text[:marker_index]
-	if not prefix.startswith("Previous tool result:"):
+	if not (
+		prefix.startswith("Toolcall Result:")
+		or prefix.startswith("Previous tool result:")
+	):
 		return None
 
-	text_item = copy.deepcopy(item)
-	text_item["text"] = prefix
-	return [text_item]
+	return prefix
+
+
+def _is_single_text_message(content):
+	if len(content) != 1:
+		return False
+	item = content[0]
+	return item.get("type") == "text" and isinstance(item.get("text"), str)

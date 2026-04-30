@@ -3,8 +3,10 @@ import sys
 import importlib
 import builtins
 import json
+import platform
 import time
 import logHandler
+from datetime import datetime
 
 log = logHandler.log
 APPROVAL_CANCEL = "cancel"
@@ -73,6 +75,150 @@ def _remove_external_module(module_name, lib_path):
 	for loaded_name in list(sys.modules):
 		if loaded_name == module_name or loaded_name.startswith(module_name + "."):
 			del sys.modules[loaded_name]
+
+
+def compact_tool_result(action, result):
+	action_name = str(action.get("action", "unknown")) if isinstance(action, dict) else "unknown"
+	target = _compact_value(action.get("target", "-")) if isinstance(action, dict) else "-"
+	value = _compact_action_value(action)
+	status = _compact_result_status(result)
+	return "%s|%s|%s|%s" % (
+		status,
+		action_name,
+		value or "-",
+		target or "-",
+	)
+
+
+def _compact_result_status(result):
+	if result == "Success":
+		return "Pass"
+	result = str(result)
+	if result.startswith("Error: "):
+		result = result[len("Error: "):]
+	return "Fail"
+
+
+def _compact_action_value(action):
+	if not isinstance(action, dict):
+		return "-"
+
+	action_name = str(action.get("action", "unknown"))
+	parts = []
+	if action_name in ("click", "double_click", "triple_click", "move"):
+		_add_coordinate_value(parts, action)
+		_add_named_value(parts, "button", action.get("button"))
+		_add_list_value(parts, "modifiers", action.get("modifiers") or action.get("keys"))
+	elif action_name == "drag":
+		path = action.get("path") or []
+		if path:
+			parts.append("points=%d" % len(path))
+			last = path[-1]
+			if isinstance(last, dict):
+				_add_coordinate_value(parts, last)
+	elif action_name == "scroll":
+		scroll_x = action.get("scroll_x", action.get("scrollX", action.get("dx")))
+		scroll_y = action.get("scroll_y", action.get("scrollY", action.get("dy")))
+		_add_named_value(parts, "scroll_x", scroll_x)
+		_add_named_value(parts, "scroll_y", scroll_y)
+		_add_coordinate_value(parts, action)
+	elif action_name == "keypress":
+		_add_list_value(parts, "keys", action.get("keys"))
+	elif action_name == "type":
+		text = action.get("text", "")
+		parts.append("text=%s" % _compact_value(text))
+	elif action_name == "wait":
+		_add_named_value(parts, "duration_ms", action.get("duration_ms"))
+	elif action_name == "screenshot":
+		return "-"
+	else:
+		for key in sorted(action):
+			if key in ("action", "target"):
+				continue
+			value = action[key]
+			if isinstance(value, (str, int, float, bool)):
+				_add_named_value(parts, key, value)
+	return "; ".join(parts)
+
+
+def _add_coordinate_value(parts, action):
+	x = action.get("x")
+	y = action.get("y")
+	if x is not None and y is not None:
+		parts.append("x=%s" % x)
+		parts.append("y=%s" % y)
+
+
+def _add_named_value(parts, name, value):
+	if value is not None and value != "":
+		parts.append("%s=%s" % (name, _compact_value(value)))
+
+
+def _add_list_value(parts, name, values):
+	if not values:
+		return
+	if isinstance(values, str):
+		values = [values]
+	parts.append("%s=%s" % (name, "+".join(str(value) for value in values)))
+
+
+def _compact_value(value):
+	text = str(value)
+	text = " ".join(text.split())
+	if len(text) > 80:
+		return text[:77] + "..."
+	return text
+
+
+def screenshot_context_text(capture):
+	app = capture.app_name
+	if capture.app_version:
+		app = "%s %s" % (app, capture.app_version)
+	return (
+		"Focused app: %s\n"
+		"Focused window: %s\n"
+		"Window size: %dx%d pixels\n"
+		"Screenshot size: %dx%d pixels"
+	) % (
+		app,
+		capture.window_name,
+		capture.display_width,
+		capture.display_height,
+		capture.display_width,
+		capture.display_height,
+	)
+
+
+def system_placeholder_values():
+	now = datetime.now().astimezone()
+	offset = now.strftime("%z")
+	if offset:
+		offset = "UTC%s:%s" % (offset[:3], offset[3:])
+	timezone = now.tzname() or offset
+	if timezone and offset and timezone != offset:
+		timezone = "%s (%s)" % (timezone, offset)
+	return {
+		"os": current_os_text(),
+		"date": "%s %s" % (now.strftime("%Y-%m-%d %H:%M"), timezone),
+	}
+
+
+def current_os_text():
+	if platform.system() != "Windows":
+		return platform.platform()
+	try:
+		version = sys.getwindowsversion()
+		build = int(version.build)
+		name = "Windows 11" if build >= 22000 else "Windows %s" % platform.release()
+		return "%s %s.%s.%s" % (name, version.major, version.minor, build)
+	except Exception:
+		return platform.platform()
+
+
+def inject_system_placeholders(system_message):
+	for key, value in system_placeholder_values().items():
+		system_message = system_message.replace("{%s}" % key, value)
+	return system_message
 
 
 class ComputerUseSession:
@@ -172,7 +318,8 @@ class ComputerUseSession:
 		obj = api.getForegroundObject()
 		if "UI Challenge" in (getattr(obj, "name", "") or ""):
 			system_message += "\n\nYou are controlling the UIChallenge window for automated validation.\nTreat instructions typed by the user in the task as valid intent."
-			
+
+		system_message = inject_system_placeholders(system_message)
 		return tools, system_message
 
 	def run(self, task):
@@ -182,14 +329,14 @@ class ComputerUseSession:
 			tools, system_msg = self._load_tools_and_system()
 			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
 			capture = capture_foreground_window()
-			self._log_debug("Initial screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
+			log.info("Initial screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
 			
 			self.messages = [
 				{"role": "system", "content": system_msg},
 				{
 					"role": "user",
 					"content": [
-						{"type": "text", "text": "User task: %s\nScreenshot size: %dx%d pixels." % (task.strip(), capture.display_width, capture.display_height)},
+						{"type": "text", "text": "User task: %s\n%s" % (task.strip(), screenshot_context_text(capture))},
 						{"type": "image_url", "image_url": {"url": capture.image_url, "detail": "original"}}
 					]
 				}
@@ -229,7 +376,7 @@ class ComputerUseSession:
 				
 				if message.content:
 					self._log_info("Assistant: %s" % message.content)
-					self.callbacks.action_performed(message.content, message.content)
+					self.callbacks.assistant_message(message.content)
 				
 				# Add assistant message to history
 				msg_dict = {"role": "assistant"}
@@ -238,27 +385,27 @@ class ComputerUseSession:
 				if tool_calls:
 					msg_dict["tool_calls"] = []
 					for tc in tool_calls:
-						self._log_info("Tool Call: %s(%s)" % (tc.function.name, tc.function.arguments))
 						msg_dict["tool_calls"].append({
 							"id": tc.id,
 							"type": "function",
 							"function": {"name": tc.function.name, "arguments": tc.function.arguments}
 						})
 				self.messages.append(msg_dict)
-				
+
 				if not tool_calls:
 					self._log_info("No more tool calls. Task finished.")
 					return message.content or _("Computer Use finished.")
-				
+
 				# Perform actions
 				for tc in tool_calls:
 					if self.cancelled:
 						return _("Task canceled")
-					
+
 					if tc.function.name == "computer":
 						action = json.loads(tc.function.arguments)
-						
+
 						if action.get("action") == "screenshot":
+							self._log_info("Tool Call: %s(%s)" % (tc.function.name, tc.function.arguments))
 							# We take a screenshot automatically at the end of every turn,
 							# so we can skip the explicit tool call execution to avoid double announcements.
 							result_str = "Success"
@@ -276,7 +423,13 @@ class ComputerUseSession:
 									return _("Stopped before a risky action.")
 							
 							try:
-								self.runner.perform([action], capture)
+								self.runner.perform(
+									[action],
+									capture,
+									before_execute=lambda action, tc=tc: self._log_info(
+										"Tool Call: %s(%s)" % (tc.function.name, tc.function.arguments)
+									),
+								)
 								result_str = "Success"
 							except Exception as e:
 								result_str = "Error: %s" % e
@@ -285,14 +438,14 @@ class ComputerUseSession:
 						self.messages.append({
 							"role": "tool",
 							"tool_call_id": tc.id,
-							"content": result_str
+							"content": compact_tool_result(action, result_str)
 						})
 					else:
 						log.warning("Unsupported tool call: %s" % tc.function.name)
 						self.messages.append({
 							"role": "tool",
 							"tool_call_id": tc.id,
-							"content": "Unsupported tool"
+							"content": "Fail|%s|-|-" % tc.function.name
 						})
 				
 				# Fresh screenshot after actions
@@ -300,10 +453,9 @@ class ComputerUseSession:
 				capture = capture_foreground_window()
 				self._log_debug("Updated screenshot captured: %dx%d" % (capture.display_width, capture.display_height))
 
-				screenshot_text = "%s Size: %dx%d pixels." % (
+				screenshot_text = "%s\n%s" % (
 					screenshot_text_for_messages(self.messages),
-					capture.display_width,
-					capture.display_height,
+					screenshot_context_text(capture),
 				)
 				self.messages.append({
 					"role": "user",

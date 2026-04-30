@@ -3,6 +3,7 @@
 import logHandler
 import threading
 import builtins
+import time
 
 import addonHandler
 import globalPluginHandler
@@ -72,6 +73,10 @@ class ComputerUseSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("Debug"))
 		)
 		self.debug_logging.SetValue(bool(settings.get("debug_logging", False)))
+		self.speak_assistant_messages = helper.addItem(
+			wx.CheckBox(self, label=_("Speak assistant messages"))
+		)
+		self.speak_assistant_messages.SetValue(bool(settings.get("speak_assistant_messages", True)))
 
 	def on_fetch_models(self, event):
 		api_key = self.api_key.GetValue().strip()
@@ -118,6 +123,7 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settings["require_risky_confirmation"] = self.require_confirmation.GetValue()
 		settings["trim_conversation"] = self.trim_conversation.GetValue()
 		settings["debug_logging"] = self.debug_logging.GetValue()
+		settings["speak_assistant_messages"] = self.speak_assistant_messages.GetValue()
 		config_handler.config.write()
 
 
@@ -183,6 +189,9 @@ class _Callbacks:
 	def confirm_risky(self, description):
 		return self.plugin.confirm_risky(description)
 
+	def assistant_message(self, message):
+		return self.plugin.assistant_message(message)
+
 	def action_performed(self, speech_label, log_label):
 		return self.plugin.action_performed(speech_label, log_label)
 
@@ -211,19 +220,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def report_status(self, message):
 		ui.message(message)
 
+	def assistant_message(self, message):
+		settings = config_handler.config["ComputerUse"]
+		if bool(settings.get("speak_assistant_messages", True)):
+			self.speak_and_wait(message)
+
 	def action_performed(self, speech_label, log_label):
-		log.info("Action performed callback: %s (%s)" % (speech_label, log_label))
 		if self.session is not None:
 			self.session.record_action(log_label)
 		self.speak_and_wait(speech_label)
 
 	def speak_and_wait(self, message):
 		done = threading.Event()
-		timeout = max(1.5, min(10.0, 0.35 + len(message) / 9.0))
-		log.info("Speech start: %s" % message)
+		# Allow up to 30 seconds for speech to finish, especially if there's a backlog.
+		timeout = max(5.0, min(30.0, 2.0 + len(message) / 5.0))
+		log.info("Speak: %s" % message)
 
 		def on_done():
-			log.info("Speech end (callback): %s" % message)
 			done.set()
 
 		def speak():
@@ -242,8 +255,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		wx.CallAfter(speak)
 		done.wait(timeout + 1.0)
-		if not done.is_set():
-			log.info("Speech end (timeout): %s" % message)
 
 
 	def confirm_risky(self, description):

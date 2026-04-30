@@ -9,7 +9,19 @@ import wx
 
 
 class Capture:
-	def __init__(self, image_url, left, top, width, height, display_width, display_height):
+	def __init__(
+		self,
+		image_url,
+		left,
+		top,
+		width,
+		height,
+		display_width,
+		display_height,
+		app_name,
+		app_version,
+		window_name,
+	):
 		self.image_url = image_url
 		self.left = left
 		self.top = top
@@ -17,6 +29,9 @@ class Capture:
 		self.height = height
 		self.display_width = display_width
 		self.display_height = display_height
+		self.app_name = app_name
+		self.app_version = app_version
+		self.window_name = window_name
 
 	@property
 	def scale_x(self):
@@ -33,6 +48,7 @@ class Capture:
 def capture_foreground_window():
 	obj = api.getForegroundObject()
 	left, top, width, height, hwnd = _foreground_rect(obj)
+	process_path = _process_path(hwnd)
 	if width <= 0 or height <= 0:
 		raise RuntimeError("The foreground window has no visible size.")
 	bitmap = wx.Bitmap(width, height)
@@ -67,6 +83,9 @@ def capture_foreground_window():
 		height=height,
 		display_width=display_width,
 		display_height=display_height,
+		app_name=_app_name(obj, process_path),
+		app_version=_app_version(process_path),
+		window_name=_window_name(obj, hwnd),
 	)
 
 
@@ -108,3 +127,111 @@ def _logical_window_size(hwnd, width, height):
 		dpi = 96
 	scale = dpi / 96.0
 	return max(1, int(round(width / scale))), max(1, int(round(height / scale)))
+
+
+def _app_name(obj, process_path=""):
+	app_module = getattr(obj, "appModule", None)
+	name = getattr(app_module, "appName", "") or getattr(app_module, "appNameShort", "")
+	if name:
+		return str(name)
+	if process_path:
+		return os.path.splitext(os.path.basename(process_path))[0]
+	process_id = getattr(obj, "processID", None)
+	if process_id:
+		return "pid %s" % process_id
+	return "Unknown"
+
+
+def _window_name(obj, hwnd):
+	if hwnd:
+		try:
+			length = int(ctypes.windll.user32.GetWindowTextLengthW(hwnd))
+			if length > 0:
+				buffer = ctypes.create_unicode_buffer(length + 1)
+				ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
+				if buffer.value:
+					return buffer.value
+		except Exception:
+			pass
+	name = getattr(obj, "name", "") or ""
+	return str(name) if name else "Unknown"
+
+
+def _process_path(hwnd):
+	if not hwnd:
+		return ""
+	process_id = ctypes.wintypes.DWORD()
+	try:
+		ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+		if not process_id.value:
+			return ""
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		open_process = ctypes.windll.kernel32.OpenProcess
+		open_process.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.BOOL, ctypes.wintypes.DWORD]
+		open_process.restype = ctypes.wintypes.HANDLE
+		handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, False, process_id.value)
+		if not handle:
+			return ""
+		try:
+			query_path = ctypes.windll.kernel32.QueryFullProcessImageNameW
+			query_path.argtypes = [
+				ctypes.wintypes.HANDLE,
+				ctypes.wintypes.DWORD,
+				ctypes.wintypes.LPWSTR,
+				ctypes.POINTER(ctypes.wintypes.DWORD),
+			]
+			query_path.restype = ctypes.wintypes.BOOL
+			size = ctypes.wintypes.DWORD(32768)
+			buffer = ctypes.create_unicode_buffer(size.value)
+			if query_path(handle, 0, buffer, ctypes.byref(size)):
+				return buffer.value
+		finally:
+			ctypes.windll.kernel32.CloseHandle(handle)
+	except Exception:
+		pass
+	return ""
+
+
+def _app_version(process_path):
+	if not process_path:
+		return ""
+	try:
+		size = ctypes.windll.version.GetFileVersionInfoSizeW(process_path, None)
+		if not size:
+			return ""
+		data = ctypes.create_string_buffer(size)
+		if not ctypes.windll.version.GetFileVersionInfoW(process_path, 0, size, data):
+			return ""
+		pointer = ctypes.c_void_p()
+		length = ctypes.wintypes.UINT()
+		if not ctypes.windll.version.VerQueryValueW(data, "\\", ctypes.byref(pointer), ctypes.byref(length)):
+			return ""
+		info = ctypes.cast(pointer, ctypes.POINTER(_VS_FIXEDFILEINFO)).contents
+		if info.dwSignature != 0xFEEF04BD:
+			return ""
+		return "%d.%d.%d.%d" % (
+			info.dwFileVersionMS >> 16,
+			info.dwFileVersionMS & 0xFFFF,
+			info.dwFileVersionLS >> 16,
+			info.dwFileVersionLS & 0xFFFF,
+		)
+	except Exception:
+		return ""
+
+
+class _VS_FIXEDFILEINFO(ctypes.Structure):
+	_fields_ = [
+		("dwSignature", ctypes.wintypes.DWORD),
+		("dwStrucVersion", ctypes.wintypes.DWORD),
+		("dwFileVersionMS", ctypes.wintypes.DWORD),
+		("dwFileVersionLS", ctypes.wintypes.DWORD),
+		("dwProductVersionMS", ctypes.wintypes.DWORD),
+		("dwProductVersionLS", ctypes.wintypes.DWORD),
+		("dwFileFlagsMask", ctypes.wintypes.DWORD),
+		("dwFileFlags", ctypes.wintypes.DWORD),
+		("dwFileOS", ctypes.wintypes.DWORD),
+		("dwFileType", ctypes.wintypes.DWORD),
+		("dwFileSubtype", ctypes.wintypes.DWORD),
+		("dwFileDateMS", ctypes.wintypes.DWORD),
+		("dwFileDateLS", ctypes.wintypes.DWORD),
+	]
