@@ -12,3 +12,5 @@ manifest.ini
 # Test App
 TestApp/.env
 TestApp/last_run.log
+
+.env
