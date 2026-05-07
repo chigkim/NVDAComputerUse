@@ -26,9 +26,7 @@ To build the add-on using `uv`:
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
 2. Run the build command:
 
-```bash
 uv run scons
-```
 
 The resulting `.nvda-addon` file is created in the project root.
 
@@ -38,6 +36,4 @@ The OpenAI Python package and its dependencies are bundled in the add-on under `
 
 A standalone UIChallenge is provided in the for develop purpose only. This allows testing "Computer Use" logic.
 
-```bash
 uv run UIChallenge.py
-```

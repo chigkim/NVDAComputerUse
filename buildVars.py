@@ -8,7 +8,7 @@ def _(arg):
 addon_info = {
 	"addon_name": "computerUse",
 	"addon_summary": _("Computer Use"),
-	"addon_description": _("""Control the foreground Windows application from an NVDA prompt using Computer Use Tool. The add-on captures the active window, sends it to the configured model, and performs mouse and keyboard actions."""),
+	"addon_description": _("""This add-on controls the foreground Windows application using the Computer Use tool based on a provided prompt. It captures the active window, sends it to the configured model, and performs mouse and keyboard actions."""),
 	"addon_version": "2026.1.10",
 	"addon_author": "Chi Kim",
 	"addon_url": "https://github.com/chigkim/NVDAComputerUse/",
