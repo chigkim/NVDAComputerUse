@@ -51,6 +51,8 @@ MOUSEEVENTF_MIDDLEDOWN = 0x0020
 MOUSEEVENTF_MIDDLEUP = 0x0040
 MOUSEEVENTF_WHEEL = 0x0800
 MOUSEEVENTF_HWHEEL = 0x01000
+CLICK_DOWN_UP_DELAY_SECONDS = 0.01
+MULTI_CLICK_DELAY_SECONDS = 0.05
 
 VK = {
     "alt": 0x12, "backspace": 0x08, "ctrl": 0x11, "control": 0x11, "delete": 0x2E,
@@ -230,6 +232,7 @@ def mouse_up(button: str) -> None:
 
 def mouse_click(button: str) -> None:
     mouse_down(button)
+    time.sleep(CLICK_DOWN_UP_DELAY_SECONDS)
     mouse_up(button)
 
 def click(action: dict, capture: Capture, count: int) -> None:
@@ -238,8 +241,10 @@ def click(action: dict, capture: Capture, count: int) -> None:
     keys = action.get("keys", action.get("modifiers", []))
     with held_keys(keys):
         ctypes.windll.user32.SetCursorPos(x, y)
-        for _ in range(count):
+        for index in range(count):
             mouse_click(button)
+            if index < count - 1:
+                time.sleep(MULTI_CLICK_DELAY_SECONDS)
 
 def drag(action: dict, capture: Capture) -> None:
     path = action.get("path", [])
@@ -316,6 +321,8 @@ def perform_action(action: dict, capture: Capture) -> str:
         return "Screenshot requested"
     elif action_type == "cursor_position":
         return "Cursor position recorded"
+    elif action_type == "confirm":
+        return f"Confirmed '{target}'"
     else:
         return f"Unknown action: {action_type}"
 
@@ -326,6 +333,8 @@ def describe_action(action: dict) -> str:
     if action_type == "type":
         text = action.get("text", "")
         return f"Type '{text}' into '{target}'"
+    elif action_type == "confirm":
+        return f"Confirm '{target}'"
     elif action_type in ["click", "double_click", "triple_click", "move"]:
         x, y = action.get("x", 0), action.get("y", 0)
         return f"{action_type.capitalize()} '{target}' at ({x}, {y})"
@@ -577,7 +586,7 @@ class ComputerUseRunner:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "action": {"type": "string", "enum": ["screenshot", "wait", "cursor_position", "move", "click", "double_click", "triple_click", "drag", "scroll", "keypress", "type"]},
+                            "action": {"type": "string", "enum": ["screenshot", "wait", "cursor_position", "move", "click", "double_click", "triple_click", "drag", "scroll", "keypress", "type", "confirm"]},
                             "target": {"type": "string"},
                             "x": {"type": "integer"}, "y": {"type": "integer"},
                             "button": {"type": "string", "enum": ["left", "right", "middle"]},
@@ -1141,13 +1150,19 @@ class UIChallengeFrame(wx.Frame):
             h_sizer = wx.BoxSizer(wx.HORIZONTAL)
             word_target = wx.Panel(self.content_area, size=(150, 46))
             word_target.SetBackgroundColour(wx.Colour(230, 230, 230))
-            wx.StaticText(word_target, label="Word Target").Center()
+            word_label = wx.StaticText(word_target, label="Word Target")
+            word_label.Center()
             word_target.Bind(wx.EVT_LEFT_DCLICK, self.OnWordDoubleClick)
+            word_label.Bind(wx.EVT_LEFT_DCLICK, self.OnWordDoubleClick)
             
             para_target = wx.Panel(self.content_area, size=(180, 46))
             para_target.SetBackgroundColour(wx.Colour(230, 230, 230))
-            wx.StaticText(para_target, label="Paragraph Target").Center()
+            para_label = wx.StaticText(para_target, label="Paragraph Target")
+            para_label.Center()
             para_target.Bind(wx.EVT_LEFT_DOWN, self.OnParaClick)
+            para_target.Bind(wx.EVT_LEFT_DCLICK, self.OnParaClick)
+            para_label.Bind(wx.EVT_LEFT_DOWN, self.OnParaClick)
+            para_label.Bind(wx.EVT_LEFT_DCLICK, self.OnParaClick)
             self.para_clicks = 0
             self.para_timer = wx.Timer(self)
             self.Bind(wx.EVT_TIMER, self.OnParaTimer, self.para_timer)

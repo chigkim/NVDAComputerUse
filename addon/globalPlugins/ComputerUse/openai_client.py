@@ -25,7 +25,14 @@ if not callable(_):
 if not callable(_):
 	_ = lambda x: x
 
-from .actions import ActionRunner, describe_action, looks_risky
+from .actions import (
+	ActionRunner,
+	RISKY_WORDS,
+	confirm_action_description,
+	describe_action,
+	is_confirm_action,
+	looks_risky,
+)
 from .conversation_history import sanitize_messages, screenshot_text_for_messages
 from .screenshot import capture_foreground_window
 
@@ -170,6 +177,14 @@ def _compact_value(value):
 	return text
 
 
+def _format_log_block(label, text):
+	lines = str(text or "").splitlines() or [""]
+	result = ["%s: %s" % (label, lines[0])]
+	for line in lines[1:]:
+		result.append("  %s" % line)
+	return result
+
+
 def screenshot_context_text(capture):
 	app = capture.app_name
 	if capture.app_version:
@@ -200,6 +215,7 @@ def system_placeholder_values():
 	return {
 		"os": current_os_text(),
 		"date": "%s %s" % (now.strftime("%Y-%m-%d %H:%M"), timezone),
+		"risky_words": ", ".join(RISKY_WORDS),
 	}
 
 
@@ -222,7 +238,17 @@ def inject_system_placeholders(system_message):
 
 
 class ComputerUseSession:
-	def __init__(self, api_key, model, require_confirmation, callbacks, base_url=None, trim_conversation=True, debug_logging=False):
+	def __init__(
+		self,
+		api_key,
+		model,
+		require_confirmation,
+		callbacks,
+		base_url=None,
+		trim_conversation=True,
+		debug_logging=False,
+		approve_all_actions=False,
+	):
 		ensure_openai_on_path()
 		from openai import OpenAI
 
@@ -237,7 +263,8 @@ class ComputerUseSession:
 		self.callbacks = callbacks
 		self.runner = ActionRunner(callbacks=callbacks)
 		self.cancelled = False
-		self.approve_all_actions_for_current_task = False
+		self.initial_approve_all_actions = bool(approve_all_actions)
+		self.approve_all_actions_for_current_task = self.initial_approve_all_actions
 		self.turns = []
 		self.total_input_tokens = 0
 		self.total_cached_tokens = 0
@@ -288,7 +315,7 @@ class ComputerUseSession:
 					"parameters": {
 						"type": "object",
 						"properties": {
-							"action": {"type": "string", "enum": ["screenshot", "wait", "cursor_position", "move", "click", "double_click", "triple_click", "drag", "scroll", "keypress", "type"]},
+							"action": {"type": "string", "enum": ["screenshot", "wait", "cursor_position", "move", "click", "double_click", "triple_click", "drag", "scroll", "keypress", "type", "confirm"]},
 							"target": {"type": "string"},
 							"x": {"type": "integer"}, "y": {"type": "integer"},
 							"button": {"type": "string", "enum": ["left", "right", "middle"]},
@@ -324,7 +351,7 @@ class ComputerUseSession:
 
 	def run(self, task):
 		self._log_info("Starting Computer Use task: %s" % task)
-		self.approve_all_actions_for_current_task = False
+		self.approve_all_actions_for_current_task = self.initial_approve_all_actions
 		try:
 			tools, system_msg = self._load_tools_and_system()
 			self.callbacks.action_performed(_("Screenshot"), _("Screenshot"))
@@ -376,6 +403,7 @@ class ComputerUseSession:
 				
 				if message.content:
 					self._log_info("Assistant: %s" % message.content)
+					self._record_assistant_message(message.content)
 					self.callbacks.assistant_message(message.content)
 				
 				# Add assistant message to history
@@ -404,6 +432,20 @@ class ComputerUseSession:
 					if tc.function.name == "computer":
 						action = json.loads(tc.function.arguments)
 
+						if is_confirm_action(action):
+							self._log_info("Tool Call: %s(%s)" % (tc.function.name, tc.function.arguments))
+							approved = self._confirm_action(action)
+							result_str = "Success" if approved else "Error: User rejected confirmation"
+							self.messages.append({
+								"role": "tool",
+								"tool_call_id": tc.id,
+								"content": compact_tool_result(action, result_str)
+							})
+							if not approved:
+								self._log_info("Action rejected by user confirmation.")
+								return _("Stopped before a risky action.")
+							continue
+
 						if action.get("action") == "screenshot":
 							self._log_info("Tool Call: %s(%s)" % (tc.function.name, tc.function.arguments))
 							# We take a screenshot automatically at the end of every turn,
@@ -415,10 +457,7 @@ class ComputerUseSession:
 								and not self.approve_all_actions_for_current_task
 								and looks_risky([action])
 							):
-								decision = self.callbacks.confirm_risky(describe_action(action, capture))
-								if decision == APPROVAL_ALL:
-									self.approve_all_actions_for_current_task = True
-								elif decision != APPROVAL_ONCE:
+								if not self._confirm_description(describe_action(action, capture)):
 									self._log_info("Action rejected by user confirmation.")
 									return _("Stopped before a risky action.")
 							
@@ -479,6 +518,20 @@ class ComputerUseSession:
 	def record_action(self, label):
 		self._record_action(label)
 
+	def _confirm_action(self, action):
+		if not self.require_confirmation or self.approve_all_actions_for_current_task:
+			return True
+		return self._confirm_description(confirm_action_description(action))
+
+	def _confirm_description(self, description):
+		if self.approve_all_actions_for_current_task:
+			return True
+		decision = self.callbacks.confirm_risky(description)
+		if decision == APPROVAL_ALL:
+			self.approve_all_actions_for_current_task = True
+			return True
+		return decision == APPROVAL_ONCE
+
 	def _record_turn(self, response):
 		usage = getattr(response, "usage", None)
 		input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -500,8 +553,21 @@ class ComputerUseSession:
 			"cached": cached_tokens,
 			"output": output_tokens,
 			"total": total_tokens,
+			"assistant_messages": [],
 			"actions": [],
 		})
+
+	def _record_assistant_message(self, message):
+		if not self.turns:
+			self.turns.append({
+				"input": 0,
+				"cached": 0,
+				"output": 0,
+				"total": 0,
+				"assistant_messages": [],
+				"actions": [],
+			})
+		self.turns[-1].setdefault("assistant_messages", []).append(str(message or ""))
 
 	def _record_action(self, label):
 		if not self.turns:
@@ -510,6 +576,7 @@ class ComputerUseSession:
 				"cached": 0,
 				"output": 0,
 				"total": 0,
+				"assistant_messages": [],
 				"actions": [],
 			})
 		self.turns[-1]["actions"].append(label)
@@ -526,6 +593,8 @@ class ComputerUseSession:
 					output=turn["output"],
 				)
 			)
+			for message in turn.get("assistant_messages", []):
+				lines.extend(_format_log_block(_("Assistant"), message))
 			lines.extend(turn["actions"])
 		lines.append("")
 		lines.append(

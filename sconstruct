@@ -7,6 +7,7 @@ import codecs
 import gettext
 import os
 import os.path
+import shutil
 import zipfile
 import sys
 
@@ -146,6 +147,17 @@ env['BUILDERS']['NVDAManifest'] = Builder(generator=manifestGenerator)
 env['BUILDERS']['NVDATranslatedManifest'] = Builder(generator=translatedManifestGenerator)
 
 
+def removePycacheDirs(path):
+	basedir = os.path.abspath(path)
+	for dir, dirnames, filenames in os.walk(basedir):
+		for dirname in list(dirnames):
+			if dirname == "__pycache__":
+				pycachePath = os.path.join(dir, dirname)
+				shutil.rmtree(pycachePath)
+				dirnames.remove(dirname)
+	return True
+
+
 def createAddonHelp(dir):
 	docsDir = os.path.join(dir, "doc")
 	if os.path.isfile("style.css"):
@@ -161,6 +173,7 @@ def createAddonHelp(dir):
 def createAddonBundleFromPath(path, dest):
 	""" Creates a bundle from a directory that contains an addon manifest file."""
 	basedir = os.path.abspath(path)
+	removePycacheDirs(basedir)
 	with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as z:
 		# FIXME: the include/exclude feature may or may not be useful. Also python files can be pre-compiled.
 		for dir, dirnames, filenames in os.walk(basedir):
@@ -276,6 +289,16 @@ def expandGlobs(files):
 
 
 addon = env.NVDAAddon(addonFile, env.Dir('addon'))
+cleanPycache = env.Alias(
+	"clean-pycache",
+	[],
+	env.Action(
+		lambda target, source, env: removePycacheDirs("addon") and None,
+		lambda target, source, env: "Removing __pycache__ directories"
+	)
+)
+env.AlwaysBuild(cleanPycache)
+env.Depends(addon, cleanPycache)
 
 langDirs = [f for f in env.Glob(os.path.join("addon", "locale", "*"))]
 

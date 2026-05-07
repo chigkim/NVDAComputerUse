@@ -31,6 +31,9 @@ from .openai_client import APPROVAL_ALL, APPROVAL_CANCEL, APPROVAL_ONCE, Compute
 
 
 log = logHandler.log
+MIN_ACTION_SPEECH_SECONDS = 0.45
+MAX_ACTION_SPEECH_SECONDS = 3.0
+ACTION_SPEECH_CHARS_PER_SECOND = 18.0
 
 try:
 	addonHandler.initTranslation()
@@ -61,10 +64,6 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settingsSizer.Add(model_sizer, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
 		self.fetch_models_btn.Bind(wx.EVT_BUTTON, self.on_fetch_models)
 
-		self.require_confirmation = helper.addItem(
-			wx.CheckBox(self, label=_("Ask before risky actions"))
-		)
-		self.require_confirmation.SetValue(bool(settings["require_risky_confirmation"]))
 		self.trim_conversation = helper.addItem(
 			wx.CheckBox(self, label=_("Trim conversation (saves tokens)"))
 		)
@@ -120,7 +119,6 @@ class ComputerUseSettingsPanel(SettingsPanel):
 		settings["api_key"] = self.api_key.GetValue()
 		settings["base_url"] = self.base_url.GetValue()
 		settings["model"] = self.model.GetValue()
-		settings["require_risky_confirmation"] = self.require_confirmation.GetValue()
 		settings["trim_conversation"] = self.trim_conversation.GetValue()
 		settings["debug_logging"] = self.debug_logging.GetValue()
 		settings["speak_assistant_messages"] = self.speak_assistant_messages.GetValue()
@@ -131,11 +129,15 @@ class TaskDialog(wx.Dialog):
 	def __init__(self, parent):
 		super().__init__(parent, title=_("Computer Use"), size=(560, 320))
 		self.task = None
+		self.approve_all_actions_for_task = False
 		main = wx.BoxSizer(wx.VERTICAL)
 		label = wx.StaticText(self, label=_("Task to perform in the foreground application:"))
 		main.Add(label, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=guiHelper.BORDER_FOR_DIALOGS)
 		self.prompt = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_RICH, size=(520, 180))
 		main.Add(self.prompt, proportion=1, flag=wx.EXPAND | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
+		self.approve_all_actions = wx.CheckBox(self, label=_("Approve All actions for this task"))
+		self.approve_all_actions.SetValue(False)
+		main.Add(self.approve_all_actions, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=guiHelper.BORDER_FOR_DIALOGS)
 		buttons = self.CreateButtonSizer(wx.OK | wx.CANCEL)
 		self.FindWindowById(wx.ID_OK).SetLabel(_("Perform"))
 		main.Add(buttons, flag=wx.ALIGN_RIGHT | wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
@@ -149,6 +151,7 @@ class TaskDialog(wx.Dialog):
 			gui.messageBox(_("Enter a task first."), _("Computer Use"), wx.OK | wx.ICON_WARNING, self)
 			return
 		self.task = task
+		self.approve_all_actions_for_task = self.approve_all_actions.GetValue()
 		self.EndModal(wx.ID_OK)
 
 
@@ -230,13 +233,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def action_performed(self, speech_label, log_label):
 		if self.session is not None:
 			self.session.record_action(log_label)
-		self.speak_and_wait(speech_label)
+		self.speak_and_wait(
+			speech_label,
+			minimum_duration=self._action_speech_duration(speech_label),
+		)
 
-	def speak_and_wait(self, message):
+	def speak_and_wait(self, message, minimum_duration=0.0):
+		message = str(message or "")
 		done = threading.Event()
 		# Allow up to 30 seconds for speech to finish, especially if there's a backlog.
 		timeout = max(5.0, min(30.0, 2.0 + len(message) / 5.0))
 		log.info("Speak: %s" % message)
+		start_time = time.monotonic()
 
 		def on_done():
 			done.set()
@@ -257,7 +265,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		wx.CallAfter(speak)
 		done.wait(timeout + 1.0)
+		remaining = float(minimum_duration) - (time.monotonic() - start_time)
+		if remaining > 0:
+			time.sleep(remaining)
 
+	def _action_speech_duration(self, message):
+		message = str(message or "")
+		if not message:
+			return 0.0
+		return max(
+			MIN_ACTION_SPEECH_SECONDS,
+			min(MAX_ACTION_SPEECH_SECONDS, len(message) / ACTION_SPEECH_CHARS_PER_SECOND),
+		)
 
 	def confirm_risky(self, description):
 		result = {"value": APPROVAL_CANCEL}
@@ -336,19 +355,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		def callback(result):
 			if result != wx.ID_OK or not dialog.task:
 				return
-			self.start_task(dialog.task)
+			self.start_task(dialog.task, approve_all_actions=dialog.approve_all_actions_for_task)
 
 		gui.runScriptModalDialog(dialog, callback)
 	script_open_task_dialog.__doc__ = _("Open a prompt to perform a task in the foreground application using OpenAI Computer Use.")
 
-	def start_task(self, task):
+	def start_task(self, task, approve_all_actions=False):
 		settings = config_handler.config["ComputerUse"]
 		try:
 			self.session = ComputerUseSession(
 				api_key=settings["api_key"],
 				base_url=settings.get("base_url"),
 				model=settings["model"],
-				require_confirmation=bool(settings["require_risky_confirmation"]),
+				require_confirmation=True,
+				approve_all_actions=bool(approve_all_actions),
 				trim_conversation=bool(settings.get("trim_conversation", True)),
 				debug_logging=bool(settings.get("debug_logging", False)),
 				callbacks=_Callbacks(self),

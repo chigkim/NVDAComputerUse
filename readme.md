@@ -56,11 +56,11 @@ A standalone TestApp is provided in the `TestApp` directory for develop purpose 
 
 ### Updating Dependencies (Vendoring)
 
-The add-on bundles its own dependencies to ensure it works within NVDA's Python environment. Since NVDA is a 32-bit application, you **must** use a 32-bit Python 3.11 environment when updating these dependencies if they include binary components (like `pydantic-core`).
+The add-on bundles its own dependencies to ensure it works within NVDA's Python environment. Use a 64-bit Python 3.13.12 target when updating these dependencies if they include binary components (like `pydantic-core`).
 
 To vendor or update dependencies:
 
 ```bash
-# Ensure you are using 32-bit Python 3.11
-uv pip install --target addon\globalPlugins\ComputerUse\lib openai pydantic --python 3.11 --platform win32
+# Ensure you are targeting 64-bit Python 3.13.12
+uv pip install --target addon\globalPlugins\ComputerUse\lib --python-version 3.13.12 --python-platform x86_64-pc-windows-msvc --only-binary :all: "openai==2.32.0" "pydantic==2.13.3"
 ```

@@ -8,8 +8,61 @@ import winUser
 
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+INPUT_MOUSE = 0
+INPUT_KEYBOARD = 1
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP = 0x0040
 MOUSEEVENTF_WHEEL = 0x0800
 MOUSEEVENTF_HWHEEL = 0x01000
+KEY_INPUT_DELAY_SECONDS = 0.05
+CLICK_DOWN_UP_DELAY_SECONDS = 0.01
+MULTI_CLICK_DELAY_SECONDS = 0.05
+CLIPBOARD_OPEN_RETRY_DELAY_SECONDS = 0.02
+CLIPBOARD_OPEN_RETRIES = 5
+CONFIRM_ACTION = "confirm"
+RISKY_WORDS = (
+	"delete",
+	"remove",
+	"erase",
+	"format",
+	"purchase",
+	"buy",
+	"pay",
+	"submit",
+	"send",
+	"post",
+	"password",
+	"api key",
+	"secret",
+	"install",
+	"run",
+	"execute",
+	"permission",
+	"settings",
+)
+
+ctypes.windll.kernel32.GlobalAlloc.argtypes = [ctypes.wintypes.UINT, ctypes.c_size_t]
+ctypes.windll.kernel32.GlobalAlloc.restype = ctypes.wintypes.HANDLE
+ctypes.windll.kernel32.GlobalLock.argtypes = [ctypes.wintypes.HANDLE]
+ctypes.windll.kernel32.GlobalLock.restype = ctypes.c_void_p
+ctypes.windll.kernel32.GlobalUnlock.argtypes = [ctypes.wintypes.HANDLE]
+ctypes.windll.kernel32.GlobalUnlock.restype = ctypes.wintypes.BOOL
+ctypes.windll.kernel32.GlobalFree.argtypes = [ctypes.wintypes.HANDLE]
+ctypes.windll.kernel32.GlobalFree.restype = ctypes.wintypes.HANDLE
+ctypes.windll.user32.OpenClipboard.argtypes = [ctypes.wintypes.HWND]
+ctypes.windll.user32.OpenClipboard.restype = ctypes.wintypes.BOOL
+ctypes.windll.user32.CloseClipboard.argtypes = []
+ctypes.windll.user32.CloseClipboard.restype = ctypes.wintypes.BOOL
+ctypes.windll.user32.EmptyClipboard.argtypes = []
+ctypes.windll.user32.EmptyClipboard.restype = ctypes.wintypes.BOOL
+ctypes.windll.user32.SetClipboardData.argtypes = [ctypes.wintypes.UINT, ctypes.wintypes.HANDLE]
+ctypes.windll.user32.SetClipboardData.restype = ctypes.wintypes.HANDLE
 
 VK = {
 	"alt": 0x12,
@@ -81,6 +134,8 @@ class ActionRunner:
 			# For explicit wait/screenshot actions, we still want a small pause
 			duration_ms = _field(action, "duration_ms", 250)
 			time.sleep(max(duration_ms / 1000.0, 0.25))
+		elif action_type == CONFIRM_ACTION:
+			return
 		else:
 			raise RuntimeError("Unsupported computer action: %s" % action_type)
 
@@ -90,8 +145,10 @@ class ActionRunner:
 		keys = _field(action, "keys", []) or _field(action, "modifiers", [])
 		with _held_keys(keys):
 			_move_to(x, y)
-			for _ in range(count):
+			for index in range(count):
 				_mouse_click(button)
+				if index < count - 1:
+					time.sleep(MULTI_CLICK_DELAY_SECONDS)
 
 	def _drag(self, action, capture):
 		path = _field(action, "path", []) or []
@@ -122,9 +179,9 @@ class ActionRunner:
 		keys = _field(action, "modifiers", [])
 		with _held_keys(keys):
 			if scroll_y:
-				ctypes.windll.user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -scroll_y, 0)
+				_send_input_mouse(MOUSEEVENTF_WHEEL, mouse_data=-scroll_y)
 			if scroll_x:
-				ctypes.windll.user32.mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, scroll_x, 0)
+				_send_input_mouse(MOUSEEVENTF_HWHEEL, mouse_data=scroll_x)
 
 	def _keypress(self, keys):
 		if keys is None:
@@ -138,40 +195,38 @@ class ActionRunner:
 	def _type_text(self, text):
 		if not text:
 			return
+		if _paste_text_from_clipboard(text):
+			return
 		_send_unicode_text(text)
 
 
 def looks_risky(actions):
-	risky_words = (
-		"delete",
-		"remove",
-		"erase",
-		"format",
-		"purchase",
-		"buy",
-		"pay",
-		"submit",
-		"send",
-		"post",
-		"password",
-		"api key",
-		"secret",
-		"install",
-		"run",
-		"execute",
-		"permission",
-		"settings",
-	)
 	for action in actions:
+		if is_confirm_action(action):
+			continue
 		text = "%s %s %s" % (
 			describe_action(action),
 			_field(action, "target", ""),
 			_field(action, "text", ""),
 		)
 		text = text.lower()
-		if any(word in text for word in risky_words):
+		if any(word in text for word in RISKY_WORDS):
 			return True
 	return False
+
+
+def is_confirm_action(action):
+	return str(_field(action, "action", _field(action, "type", ""))).lower() == CONFIRM_ACTION
+
+
+def confirm_action_description(action):
+	target = _field(action, "target", "")
+	if target:
+		return str(target)
+	text = _field(action, "text", "")
+	if text:
+		return str(text)
+	return "Approve this Computer Use action?"
 
 
 def describe_action(action, capture=None):
@@ -214,6 +269,8 @@ def describe_action(action, capture=None):
 		duration_ms = _field(action, "duration_ms", None)
 		if duration_ms is not None:
 			parts.append("%s ms" % duration_ms)
+	elif action_type == CONFIRM_ACTION:
+		pass
 	elif action_type == "screenshot":
 		pass
 	else:
@@ -242,6 +299,7 @@ def _action_name(action_type):
 		"type": "Type",
 		"wait": "Pause",
 		"screenshot": "Screenshot",
+		CONFIRM_ACTION: "Confirm",
 	}
 	return names.get(action_type, action_type.replace("_", " ").title())
 
@@ -287,25 +345,26 @@ def _move_to(x, y):
 
 def _mouse_click(button):
 	_mouse_down(button)
+	time.sleep(CLICK_DOWN_UP_DELAY_SECONDS)
 	_mouse_up(button)
 
 
 def _mouse_down(button):
 	flag = {
-		"left": winUser.MOUSEEVENTF_LEFTDOWN,
-		"right": winUser.MOUSEEVENTF_RIGHTDOWN,
-		"middle": winUser.MOUSEEVENTF_MIDDLEDOWN,
-	}.get(str(button).lower(), winUser.MOUSEEVENTF_LEFTDOWN)
-	winUser.mouse_event(flag, 0, 0, None, None)
+		"left": MOUSEEVENTF_LEFTDOWN,
+		"right": MOUSEEVENTF_RIGHTDOWN,
+		"middle": MOUSEEVENTF_MIDDLEDOWN,
+	}.get(str(button).lower(), MOUSEEVENTF_LEFTDOWN)
+	_send_input_mouse(flag)
 
 
 def _mouse_up(button):
 	flag = {
-		"left": winUser.MOUSEEVENTF_LEFTUP,
-		"right": winUser.MOUSEEVENTF_RIGHTUP,
-		"middle": winUser.MOUSEEVENTF_MIDDLEUP,
-	}.get(str(button).lower(), winUser.MOUSEEVENTF_LEFTUP)
-	winUser.mouse_event(flag, 0, 0, None, None)
+		"left": MOUSEEVENTF_LEFTUP,
+		"right": MOUSEEVENTF_RIGHTUP,
+		"middle": MOUSEEVENTF_MIDDLEUP,
+	}.get(str(button).lower(), MOUSEEVENTF_LEFTUP)
+	_send_input_mouse(flag)
 
 
 class _held_keys:
@@ -337,12 +396,79 @@ def _press_key(key):
 
 
 def _send_input_key(vk_code, is_up=False):
-	extra = ctypes.c_ulong(0)
 	flags = KEYEVENTF_KEYUP if is_up else 0
 	inp = _INPUT()
-	inp.type = 1 # INPUT_KEYBOARD
+	inp.type = INPUT_KEYBOARD
 	inp.ki = _KEYBDINPUT(vk_code, 0, flags, 0, None)
-	ctypes.windll.user32.SendInput(1, ctypes.pointer(inp), ctypes.sizeof(inp))
+	_send_input(inp)
+
+
+def _send_input_mouse(flags, mouse_data=0):
+	inp = _INPUT()
+	inp.type = INPUT_MOUSE
+	inp.mi = _MOUSEINPUT(0, 0, int(mouse_data), flags, 0, None)
+	_send_input(inp)
+
+
+def _send_input(inputs):
+	if isinstance(inputs, _INPUT):
+		count = 1
+		input_pointer = ctypes.pointer(inputs)
+	else:
+		count = len(inputs)
+		input_pointer = ctypes.cast(inputs, ctypes.POINTER(_INPUT))
+	sent = ctypes.windll.user32.SendInput(count, input_pointer, ctypes.sizeof(_INPUT))
+	if sent != count:
+		raise ctypes.WinError()
+
+
+def _paste_text_from_clipboard(text):
+	try:
+		_set_clipboard_text(text)
+		time.sleep(KEY_INPUT_DELAY_SECONDS)
+		with _held_keys(["ctrl"]):
+			_press_key("v")
+		time.sleep(KEY_INPUT_DELAY_SECONDS)
+		return True
+	except Exception:
+		return False
+
+
+def _set_clipboard_text(text):
+	encoded_text = (text + "\0").encode("utf-16-le", "surrogatepass")
+	handle = ctypes.windll.kernel32.GlobalAlloc(GMEM_MOVEABLE, len(encoded_text))
+	if not handle:
+		raise ctypes.WinError()
+	try:
+		locked_memory = ctypes.windll.kernel32.GlobalLock(handle)
+		if not locked_memory:
+			raise ctypes.WinError()
+		try:
+			ctypes.memmove(locked_memory, encoded_text, len(encoded_text))
+		finally:
+			ctypes.windll.kernel32.GlobalUnlock(handle)
+
+		_open_clipboard()
+		try:
+			if not ctypes.windll.user32.EmptyClipboard():
+				raise ctypes.WinError()
+			if not ctypes.windll.user32.SetClipboardData(CF_UNICODETEXT, handle):
+				raise ctypes.WinError()
+			handle = None
+		finally:
+			ctypes.windll.user32.CloseClipboard()
+	finally:
+		if handle:
+			ctypes.windll.kernel32.GlobalFree(handle)
+
+
+def _open_clipboard():
+	for attempt in range(CLIPBOARD_OPEN_RETRIES):
+		if ctypes.windll.user32.OpenClipboard(None):
+			return
+		if attempt < CLIPBOARD_OPEN_RETRIES - 1:
+			time.sleep(CLIPBOARD_OPEN_RETRY_DELAY_SECONDS)
+	raise ctypes.WinError()
 
 
 def _key_code(key):
@@ -360,19 +486,18 @@ def _send_unicode_text(text):
 		int.from_bytes(data[index:index + 2], "little")
 		for index in range(0, len(data), 2)
 	]
-	chunk_size = 64
-	for start in range(0, len(code_units), chunk_size):
-		chunk = code_units[start:start + chunk_size]
-		inputs = (_INPUT * (len(chunk) * 2))()
-		for index, code_unit in enumerate(chunk):
-			down = index * 2
-			up = down + 1
-			inputs[down].type = 1 # INPUT_KEYBOARD
-			inputs[down].ki = _KEYBDINPUT(0, code_unit, KEYEVENTF_UNICODE, 0, None)
-			inputs[up].type = 1 # INPUT_KEYBOARD
-			inputs[up].ki = _KEYBDINPUT(0, code_unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None)
-		ctypes.windll.user32.SendInput(len(inputs), ctypes.pointer(inputs), ctypes.sizeof(_INPUT))
-		time.sleep(0.01)
+	for code_unit in code_units:
+		_send_unicode_code_unit(code_unit, KEYEVENTF_UNICODE)
+		time.sleep(KEY_INPUT_DELAY_SECONDS)
+		_send_unicode_code_unit(code_unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)
+		time.sleep(KEY_INPUT_DELAY_SECONDS)
+
+
+def _send_unicode_code_unit(code_unit, flags):
+	inp = _INPUT()
+	inp.type = INPUT_KEYBOARD
+	inp.ki = _KEYBDINPUT(0, code_unit, flags, 0, None)
+	_send_input(inp)
 
 
 def _send_unicode(char):
@@ -384,14 +509,14 @@ def _send_unicode(char):
 	inputs = (_INPUT * 2)()
 
 	# Down
-	inputs[0].type = 1 # INPUT_KEYBOARD
+	inputs[0].type = INPUT_KEYBOARD
 	inputs[0].ki = _KEYBDINPUT(0, ord(char), KEYEVENTF_UNICODE, 0, None)
 
 	# Up
-	inputs[1].type = 1 # INPUT_KEYBOARD
+	inputs[1].type = INPUT_KEYBOARD
 	inputs[1].ki = _KEYBDINPUT(0, ord(char), KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None)
 
-	ctypes.windll.user32.SendInput(2, ctypes.pointer(inputs), ctypes.sizeof(_INPUT))
+	_send_input(inputs)
 
 
 class _KEYBDINPUT(ctypes.Structure):

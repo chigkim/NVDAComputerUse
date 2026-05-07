@@ -20,9 +20,10 @@
               "drag",
               "scroll",
               "keypress",
-              "type"
+              "type",
+              "confirm"
             ],
-            "description": "The computer action to perform. Action-specific requirements: screenshot and cursor_position require no extra fields; wait may include duration_ms; move requires x and y; click, double_click, and triple_click require x and y and may include button and modifiers; drag requires path and may include modifiers; scroll requires x, y, scroll_x, and scroll_y and may include modifiers; keypress requires keys; type requires text."
+            "description": "The computer action to perform. Action-specific requirements: screenshot, cursor_position, and confirm require no extra fields beyond target; wait may include duration_ms; move requires x and y; click, double_click, and triple_click require x and y and may include button and modifiers; drag requires path and may include modifiers; scroll requires x, y, scroll_x, and scroll_y and may include modifiers; keypress requires keys; type requires text. Use confirm to ask the user for approval before a risky or hard-to-reverse action."
           },
           "target": {
             "type": "string",
