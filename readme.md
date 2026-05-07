@@ -1,6 +1,6 @@
 # Computer Use for NVDA
 
-Computer Use lets you describe a task in an NVDA dialog and have OpenAI's Computer Use tool operate the foreground Windows application.
+Computer Use lets you describe a task in an NVDA dialog and have Computer Use tool operate the foreground Windows application.
 
 ## WARNING
 
@@ -8,13 +8,10 @@ Computer Use lets you describe a task in an NVDA dialog and have OpenAI's Comput
 
 ## Usage
 
-This add-on can interact with the desktop applications that is open in the foreground.
-
 1. Open **NVDA Settings**.
 2. Select the **Computer Use** category.
-3. Enter your **OpenAI API key**.
-4. Adjust the model and confirmation settings if needed.
-5. Press `NVDA+Shift+Control+U` to open the task dialog. Enter a task, choose **Perform**.
+3. Enter URL, API key, and model to use via OpenAI compatible Chat Completions API.
+4. Press `NVDA+Shift+Control+U` to open the task dialog. Enter a task, choose **Perform**.
 
 The add-on captures the active window, sends the screenshot to the configured model, and follows the model's mouse and keyboard actions until the task is complete, cancelled, or an error occurs.
 
@@ -28,39 +25,19 @@ To build the add-on using `uv`:
 
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
 2. Run the build command:
-   ```bash
-   uv run scons
-   ```
+
+```bash
+uv run scons
+```
 
 The resulting `.nvda-addon` file is created in the project root.
 
 The OpenAI Python package and its dependencies are bundled in the add-on under `addon/globalPlugins/ComputerUse/lib`.
 
-### Standalone Test App
+### UIChallenge App
 
-A standalone TestApp is provided in the `TestApp` directory for develop purpose only. This allows testing "Computer Use" logic without running NVDA.
-
-1. Install test app dependencies into your local environment:
-   ```powershell
-   uv pip install pillow openai
-   ```
-2. Setup environment:
-   ```powershell
-   cp TestApp/.env.example TestApp/.env
-   # Edit TestApp/.env with your API key
-   ```
-3. Run the test app:
-   ```powershell
-   uv run python TestApp/app.py
-   ```
-
-### Updating Dependencies (Vendoring)
-
-The add-on bundles its own dependencies to ensure it works within NVDA's Python environment. Use a 64-bit Python 3.13.12 target when updating these dependencies if they include binary components (like `pydantic-core`).
-
-To vendor or update dependencies:
+A standalone UIChallenge is provided in the for develop purpose only. This allows testing "Computer Use" logic.
 
 ```bash
-# Ensure you are targeting 64-bit Python 3.13.12
-uv pip install --target addon\globalPlugins\ComputerUse\lib --python-version 3.13.12 --python-platform x86_64-pc-windows-msvc --only-binary :all: "openai==2.32.0" "pydantic==2.13.3"
+uv run UIChallenge.py
 ```
