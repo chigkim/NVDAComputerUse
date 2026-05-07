@@ -147,7 +147,7 @@ env['BUILDERS']['NVDAManifest'] = Builder(generator=manifestGenerator)
 env['BUILDERS']['NVDATranslatedManifest'] = Builder(generator=translatedManifestGenerator)
 
 
-def removePycacheDirs(path):
+def removePythonBytecode(path):
 	basedir = os.path.abspath(path)
 	for dir, dirnames, filenames in os.walk(basedir):
 		for dirname in list(dirnames):
@@ -155,6 +155,9 @@ def removePycacheDirs(path):
 				pycachePath = os.path.join(dir, dirname)
 				shutil.rmtree(pycachePath)
 				dirnames.remove(dirname)
+		for filename in filenames:
+			if filename.endswith(".pyc"):
+				os.remove(os.path.join(dir, filename))
 	return True
 
 
@@ -173,7 +176,7 @@ def createAddonHelp(dir):
 def createAddonBundleFromPath(path, dest):
 	""" Creates a bundle from a directory that contains an addon manifest file."""
 	basedir = os.path.abspath(path)
-	removePycacheDirs(basedir)
+	removePythonBytecode(basedir)
 	with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as z:
 		# FIXME: the include/exclude feature may or may not be useful. Also python files can be pre-compiled.
 		for dir, dirnames, filenames in os.walk(basedir):
@@ -293,8 +296,8 @@ cleanPycache = env.Alias(
 	"clean-pycache",
 	[],
 	env.Action(
-		lambda target, source, env: removePycacheDirs("addon") and None,
-		lambda target, source, env: "Removing __pycache__ directories"
+		lambda target, source, env: removePythonBytecode("addon") and None,
+		lambda target, source, env: "Removing Python bytecode"
 	)
 )
 env.AlwaysBuild(cleanPycache)
